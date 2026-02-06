@@ -85,6 +85,7 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}@${{ steps.build-and-push.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
+          upload-release-assets: false
 
       - name: Attest SBOM
         run: |
