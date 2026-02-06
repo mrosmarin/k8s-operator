@@ -134,6 +134,8 @@ jobs:
 
       - name: Create kind cluster
         uses: helm/kind-action@v1
+        with:
+          cluster_name: e2e-test
 
       - name: Build operator image for kind
         run: |
@@ -141,7 +143,7 @@ jobs:
 
       - name: Load image into kind
         run: |
-          kind load docker-image ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:e2e
+          kind load docker-image ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:e2e --name e2e-test
 
       - name: Install CRDs
         run: make install
