@@ -1,0 +1,47 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+## Quick Start
+
+1. Create a secret with your API keys:
+
+   kubectl create secret generic openclaw-api-keys \
+     --from-literal=ANTHROPIC_API_KEY=your-key-here \
+     --from-literal=OPENAI_API_KEY=your-key-here
+
+2. Create an OpenClawInstance:
+
+   cat <<EOF | kubectl apply -f -
+   apiVersion: openclaw.openclaw.io/v1alpha1
+   kind: OpenClawInstance
+   metadata:
+     name: my-openclaw
+   spec:
+     envFrom:
+       - secretRef:
+           name: openclaw-api-keys
+     storage:
+       persistence:
+         enabled: true
+         size: 10Gi
+   EOF
+
+3. Check the status:
+
+   kubectl get openclawinstances
+
+## Documentation
+
+For more information, visit:
+https://github.com/openclawrocks/k8s-operator
+
+## Getting Help
+
+If you encounter any issues, please file an issue at:
+https://github.com/openclawrocks/k8s-operator/issues
