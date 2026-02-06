@@ -393,8 +393,8 @@ func (r *OpenClawInstanceReconciler) reconcilePVC(ctx context.Context, instance 
 	existing := &corev1.PersistentVolumeClaim{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(pvc), existing); err != nil {
 		if apierrors.IsNotFound(err) {
-			if err := r.Create(ctx, pvc); err != nil {
-				return err
+			if createErr := r.Create(ctx, pvc); createErr != nil {
+				return createErr
 			}
 		} else {
 			return err
