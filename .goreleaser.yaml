@@ -68,6 +68,7 @@ changelog:
 
 release:
   draft: true
+  replace_existing_artifacts: true
   github:
     owner: openclaw-rocks
     name: k8s-operator

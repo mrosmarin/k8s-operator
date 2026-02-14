@@ -38,7 +38,7 @@ import (
 // Returns (result, done, error):
 //   - done=true: restore is complete (or not needed), continue to create StatefulSet
 //   - done=false: restore is in progress, requeue with result
-func (r *OpenClawInstanceReconciler) reconcileRestore(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance) (ctrl.Result, bool, error) {
+func (r *OpenClawInstanceReconciler) reconcileRestore(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance) (result ctrl.Result, done bool, _ error) {
 	logger := log.FromContext(ctx)
 
 	// Skip if no restore requested
