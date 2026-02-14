@@ -33,7 +33,7 @@ import (
 
 const (
 	// BackupSecretName is the name of the Secret containing B2 credentials
-	BackupSecretName = "b2-backup-credentials"
+	BackupSecretName = "b2-backup-credentials" // #nosec G101 -- not a credential, just a Secret resource name
 
 	// RcloneImage is the pinned rclone container image
 	RcloneImage = "rclone/rclone:1.68"
