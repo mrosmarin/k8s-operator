@@ -36,6 +36,12 @@ const (
 	// ConfigMergeModeMerge is the merge mode that deep-merges config with existing PVC config
 	ConfigMergeModeMerge = "merge"
 
+	// ConfigFormatJSON5 is the config format that accepts JSON5 (comments, trailing commas)
+	ConfigFormatJSON5 = "json5"
+
+	// DefaultCABundleKey is the default key in a ConfigMap or Secret for the CA bundle
+	DefaultCABundleKey = "ca-bundle.crt"
+
 	// AppName is the application name used in labels
 	AppName = "openclaw"
 

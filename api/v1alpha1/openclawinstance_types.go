@@ -54,6 +54,12 @@ type OpenClawInstanceSpec struct {
 	// +optional
 	Chromium ChromiumSpec `json:"chromium,omitempty"`
 
+	// InitContainers is a list of additional init containers to run before the main container.
+	// They run after the operator-managed init-config and init-skills containers.
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
+	InitContainers []corev1.Container `json:"initContainers,omitempty"`
+
 	// Sidecars is a list of additional sidecar containers to inject into the pod.
 	// Use this for custom sidecars like database proxies, log forwarders, or service meshes.
 	// +optional
@@ -62,6 +68,18 @@ type OpenClawInstanceSpec struct {
 	// SidecarVolumes is a list of additional volumes to make available to sidecar containers.
 	// +optional
 	SidecarVolumes []corev1.Volume `json:"sidecarVolumes,omitempty"`
+
+	// ExtraVolumes adds additional volumes to the pod.
+	// These volumes are available to the main container via ExtraVolumeMounts.
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
+	ExtraVolumes []corev1.Volume `json:"extraVolumes,omitempty"`
+
+	// ExtraVolumeMounts adds additional volume mounts to the main container.
+	// Use with ExtraVolumes to mount ConfigMaps, Secrets, NFS shares, or CSI volumes.
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
+	ExtraVolumeMounts []corev1.VolumeMount `json:"extraVolumeMounts,omitempty"`
 
 	// Networking specifies network-related configuration
 	// +optional
@@ -135,6 +153,15 @@ type ConfigSpec struct {
 	// +kubebuilder:default="overwrite"
 	// +optional
 	MergeMode string `json:"mergeMode,omitempty"`
+
+	// Format specifies the config file format.
+	// "json" (default) expects standard JSON. "json5" accepts JSON5 (comments, trailing commas).
+	// JSON5 is converted to standard JSON by the init container using npx json5.
+	// JSON5 requires configMapRef (inline raw config must be valid JSON).
+	// +kubebuilder:validation:Enum=json;json5
+	// +kubebuilder:default="json"
+	// +optional
+	Format string `json:"format,omitempty"`
 }
 
 // ConfigMapKeySelector selects a key from a ConfigMap
@@ -210,6 +237,30 @@ type SecuritySpec struct {
 	// RBAC configures role-based access control
 	// +optional
 	RBAC RBACSpec `json:"rbac,omitempty"`
+
+	// CABundle injects a custom CA certificate bundle into all containers.
+	// Use this in environments with TLS-intercepting proxies or private CAs.
+	// +optional
+	CABundle *CABundleSpec `json:"caBundle,omitempty"`
+}
+
+// CABundleSpec configures custom CA certificate injection.
+type CABundleSpec struct {
+	// ConfigMapName is the name of a ConfigMap containing the CA bundle.
+	// The ConfigMap should have a key matching the Key field.
+	// +optional
+	ConfigMapName string `json:"configMapName,omitempty"`
+
+	// SecretName is the name of a Secret containing the CA bundle.
+	// The Secret should have a key matching the Key field.
+	// Only one of ConfigMapName or SecretName should be set.
+	// +optional
+	SecretName string `json:"secretName,omitempty"`
+
+	// Key is the key in the ConfigMap or Secret containing the CA bundle.
+	// +kubebuilder:default="ca-bundle.crt"
+	// +optional
+	Key string `json:"key,omitempty"`
 }
 
 // PodSecurityContextSpec defines pod-level security context
@@ -228,6 +279,13 @@ type PodSecurityContextSpec struct {
 	// +kubebuilder:default=1000
 	// +optional
 	FSGroup *int64 `json:"fsGroup,omitempty"`
+
+	// FSGroupChangePolicy defines the behavior of changing ownership and permission of the volume.
+	// "OnRootMismatch" skips recursive chown when ownership already matches, improving startup
+	// time for large PVCs. "Always" recursively chowns on every mount (Kubernetes default).
+	// +kubebuilder:validation:Enum=OnRootMismatch;Always
+	// +optional
+	FSGroupChangePolicy *corev1.PodFSGroupChangePolicy `json:"fsGroupChangePolicy,omitempty"`
 
 	// RunAsNonRoot indicates that the container must run as a non-root user
 	// +kubebuilder:default=true
@@ -295,6 +353,11 @@ type RBACSpec struct {
 	// Only used if CreateServiceAccount is false
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// ServiceAccountAnnotations are annotations to add to the managed ServiceAccount.
+	// Use this for cloud provider integrations like AWS IRSA or GCP Workload Identity.
+	// +optional
+	ServiceAccountAnnotations map[string]string `json:"serviceAccountAnnotations,omitempty"`
 
 	// AdditionalRules adds custom RBAC rules to the generated Role
 	// +optional
@@ -871,6 +934,9 @@ const (
 
 	// ConditionTypeAutoUpdateAvailable indicates a newer version is available
 	ConditionTypeAutoUpdateAvailable = "AutoUpdateAvailable"
+
+	// ConditionTypeSecretsReady indicates all referenced secrets exist
+	ConditionTypeSecretsReady = "SecretsReady"
 )
 
 // Phase constants

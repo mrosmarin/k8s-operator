@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -32,6 +33,37 @@ import (
 )
 
 const imageTagLatest = "latest"
+const configFormatJSON5 = "json5"
+
+// knownProviderEnvVars lists environment variable names for known AI provider API keys.
+var knownProviderEnvVars = map[string]bool{
+	"ANTHROPIC_API_KEY":        true,
+	"OPENAI_API_KEY":           true,
+	"GOOGLE_AI_API_KEY":        true,
+	"GOOGLE_AI_STUDIO_API_KEY": true,
+	"AZURE_OPENAI_API_KEY":     true,
+	"AZURE_OPENAI_ENDPOINT":    true,
+	"AWS_ACCESS_KEY_ID":        true, // Bedrock
+	"MISTRAL_API_KEY":          true,
+	"COHERE_API_KEY":           true,
+	"TOGETHER_API_KEY":         true,
+	"GROQ_API_KEY":             true,
+	"FIREWORKS_API_KEY":        true,
+	"DEEPSEEK_API_KEY":         true,
+	"OPENROUTER_API_KEY":       true,
+	"XAI_API_KEY":              true,
+}
+
+// knownConfigKeys lists known top-level keys in openclaw.json configuration.
+var knownConfigKeys = map[string]bool{
+	"mcpServers":         true,
+	"llmConfig":          true,
+	"skills":             true,
+	"apiKeys":            true,
+	"settings":           true,
+	"tools":              true,
+	"customInstructions": true,
+}
 
 // OpenClawInstanceValidator validates OpenClawInstance resources
 type OpenClawInstanceValidator struct{}
@@ -117,10 +149,8 @@ func (v *OpenClawInstanceValidator) validate(instance *openclawv1alpha1.OpenClaw
 		}
 	}
 
-	// 6. Warn if no envFrom is configured (likely missing API keys)
-	if len(instance.Spec.EnvFrom) == 0 && len(instance.Spec.Env) == 0 {
-		warnings = append(warnings, "No environment variables configured - you likely need to configure API keys via envFrom or env")
-	}
+	// 6. Warn if no AI provider API keys detected
+	warnings = append(warnings, validateProviderKeys(instance)...)
 
 	// 7. Warn if privilege escalation is allowed
 	if instance.Spec.Security.ContainerSecurityContext != nil &&
@@ -179,7 +209,38 @@ func (v *OpenClawInstanceValidator) validate(instance *openclawv1alpha1.OpenClaw
 		}
 	}
 
-	// 16. Validate auto-update healthCheckTimeout
+	// 16. Validate CA bundle spec
+	if cab := instance.Spec.Security.CABundle; cab != nil {
+		if cab.ConfigMapName != "" && cab.SecretName != "" {
+			return nil, fmt.Errorf("caBundle: only one of configMapName or secretName may be set, not both")
+		}
+		if cab.ConfigMapName == "" && cab.SecretName == "" {
+			return nil, fmt.Errorf("caBundle: one of configMapName or secretName must be set")
+		}
+	}
+
+	// 17. Validate config schema (warning-only for unknown keys)
+	// Skip config schema validation for JSON5 with configMapRef (can't validate externally)
+	if instance.Spec.Config.Format != configFormatJSON5 {
+		warnings = append(warnings, validateConfigSchema(instance)...)
+	}
+
+	// 19. Validate custom init container names
+	if err := validateInitContainers(instance.Spec.InitContainers); err != nil {
+		return nil, err
+	}
+
+	// 20. Validate JSON5 config constraints
+	if instance.Spec.Config.Format == configFormatJSON5 {
+		if instance.Spec.Config.Raw != nil {
+			return nil, fmt.Errorf("config.format \"json5\" requires configMapRef — inline raw config must be valid JSON")
+		}
+		if instance.Spec.Config.MergeMode == "merge" {
+			return nil, fmt.Errorf("config.format \"json5\" is not compatible with mergeMode \"merge\"")
+		}
+	}
+
+	// 18. Validate auto-update healthCheckTimeout
 	if instance.Spec.AutoUpdate.HealthCheckTimeout != "" {
 		d, err := time.ParseDuration(instance.Spec.AutoUpdate.HealthCheckTimeout)
 		if err != nil {
@@ -274,6 +335,69 @@ func validateSkillName(name string) error {
 	return nil
 }
 
+// validateProviderKeys checks whether any known AI provider API keys are configured.
+func validateProviderKeys(instance *openclawv1alpha1.OpenClawInstance) admission.Warnings {
+	// If envFrom has entries, assume secrets contain provider keys (we can't introspect)
+	if len(instance.Spec.EnvFrom) > 0 {
+		return nil
+	}
+
+	// Scan env for known provider keys or valueFrom secret references
+	for _, env := range instance.Spec.Env {
+		if knownProviderEnvVars[env.Name] {
+			return nil
+		}
+		if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+			return nil
+		}
+	}
+
+	return admission.Warnings{
+		"No AI provider API keys detected. Configure keys via envFrom (recommended) or env. Known providers: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_AI_API_KEY, AZURE_OPENAI_API_KEY, AWS_ACCESS_KEY_ID, ...",
+	}
+}
+
+// validateConfigSchema checks the top-level keys of spec.config.raw for unknown entries.
+func validateConfigSchema(instance *openclawv1alpha1.OpenClawInstance) admission.Warnings {
+	if instance.Spec.Config.Raw == nil || len(instance.Spec.Config.Raw.Raw) == 0 {
+		return nil
+	}
+
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(instance.Spec.Config.Raw.Raw, &topLevel); err != nil {
+		// Invalid JSON is a hard error
+		return nil // JSON parsing errors are caught by Kubernetes API server
+	}
+
+	var warnings admission.Warnings
+	for key := range topLevel {
+		if !knownConfigKeys[key] {
+			warnings = append(warnings, fmt.Sprintf("Unknown config key %q in spec.config.raw — known keys are: mcpServers, llmConfig, skills, apiKeys, settings, tools, customInstructions", key))
+		}
+	}
+	return warnings
+}
+
+// reservedInitContainerNames are names used by operator-managed init containers.
+var reservedInitContainerNames = map[string]bool{
+	"init-config": true,
+	"init-skills": true,
+}
+
+// validateInitContainers checks custom init container names.
+func validateInitContainers(containers []corev1.Container) error {
+	for i := range containers {
+		name := containers[i].Name
+		if name == "" {
+			return fmt.Errorf("initContainers[%d]: container name must not be empty", i)
+		}
+		if reservedInitContainerNames[name] {
+			return fmt.Errorf("initContainers[%d]: name %q is reserved for operator-managed init containers", i, name)
+		}
+	}
+	return nil
+}
+
 // OpenClawInstanceDefaulter sets defaults for OpenClawInstance resources
 type OpenClawInstanceDefaulter struct{}
 
@@ -297,6 +421,11 @@ func (d *OpenClawInstanceDefaulter) Default(ctx context.Context, obj runtime.Obj
 	// Default config merge mode
 	if instance.Spec.Config.MergeMode == "" {
 		instance.Spec.Config.MergeMode = "overwrite"
+	}
+
+	// Default config format
+	if instance.Spec.Config.Format == "" {
+		instance.Spec.Config.Format = "json"
 	}
 
 	// Default security settings
