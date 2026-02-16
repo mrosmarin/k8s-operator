@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5](https://github.com/openclaw-rocks/k8s-operator/compare/v0.9.4...v0.9.5) (2026-02-16)
+
+
+### Features
+
+* add Phase 2+3 features and CVE-2025-22868 fix ([#84](https://github.com/openclaw-rocks/k8s-operator/issues/84)) ([94d4273](https://github.com/openclaw-rocks/k8s-operator/commit/94d427300aece52946929d3360e612ebbdba8441))
+* add read-only rootfs, config merge mode, skill installation, and secret rotation detection ([#82](https://github.com/openclaw-rocks/k8s-operator/issues/82)) ([abd7911](https://github.com/openclaw-rocks/k8s-operator/commit/abd7911b76c829127c133d251927f5862f3cdeda))
+* auto-generate gateway token auth for OpenClaw instances ([#85](https://github.com/openclaw-rocks/k8s-operator/issues/85)) ([6ee7eca](https://github.com/openclaw-rocks/k8s-operator/commit/6ee7eca5002b7035f15e1042a18d6199e50823c1)), closes [#83](https://github.com/openclaw-rocks/k8s-operator/issues/83)
+
 ## [0.9.4](https://github.com/openclaw-rocks/k8s-operator/compare/v0.9.3...v0.9.4) (2026-02-16)
 
 
