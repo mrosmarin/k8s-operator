@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10](https://github.com/openclaw-rocks/k8s-operator/compare/v0.9.9...v0.9.10) (2026-02-18)
+
+
+### Bug Fixes
+
+* emit provider-aware ingress annotations based on className ([#109](https://github.com/openclaw-rocks/k8s-operator/issues/109)) ([#110](https://github.com/openclaw-rocks/k8s-operator/issues/110)) ([c040df6](https://github.com/openclaw-rocks/k8s-operator/commit/c040df69f77e95ea8e284e84ad7bf86cd03df1ed))
+* graceful deletion when B2 backup credentials are not configured ([#112](https://github.com/openclaw-rocks/k8s-operator/issues/112)) ([10b59be](https://github.com/openclaw-rocks/k8s-operator/commit/10b59be0368d2f4c2ad5069621ecf62609d924eb)), closes [#111](https://github.com/openclaw-rocks/k8s-operator/issues/111)
+* use shell-capable images for distroless init containers ([#108](https://github.com/openclaw-rocks/k8s-operator/issues/108)) ([2c87e68](https://github.com/openclaw-rocks/k8s-operator/commit/2c87e68e2e8b6bb94c95fb2ae751084843ecf2af))
+
 ## [0.9.9](https://github.com/openclaw-rocks/k8s-operator/compare/v0.9.8...v0.9.9) (2026-02-17)
 
 
