@@ -773,15 +773,11 @@ func hasWorkspaceFiles(instance *openclawv1alpha1.OpenClawInstance) bool {
 }
 
 // configMapKey returns the ConfigMap key for the config file.
-// Always returns "openclaw.json" for operator-managed configs (including vanilla
-// deployments), since the operator always creates a ConfigMap with gateway.bind.
-func configMapKey(instance *openclawv1alpha1.OpenClawInstance) string {
-	if instance.Spec.Config.ConfigMapRef != nil {
-		if instance.Spec.Config.ConfigMapRef.Key != "" {
-			return instance.Spec.Config.ConfigMapRef.Key
-		}
-		return "openclaw.json"
-	}
+// Always returns "openclaw.json" because the operator-managed ConfigMap always
+// uses this key, regardless of whether the user provided config via raw,
+// configMapRef, or none. The controller reads external CMs and writes the
+// enriched result into the operator-managed CM under "openclaw.json".
+func configMapKey(_ *openclawv1alpha1.OpenClawInstance) string {
 	return "openclaw.json"
 }
 
@@ -1040,35 +1036,21 @@ func buildVolumes(instance *openclawv1alpha1.OpenClawInstance) []corev1.Volume {
 		})
 	}
 
-	// Config volume
+	// Config volume - always mount the operator-managed ConfigMap.
+	// The controller enriches all config sources (raw, configMapRef, or
+	// empty default) and writes the result into this ConfigMap.
 	defaultMode := int32(0o644)
-	if instance.Spec.Config.ConfigMapRef != nil {
-		volumes = append(volumes, corev1.Volume{
-			Name: "config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: instance.Spec.Config.ConfigMapRef.Name,
-					},
-					DefaultMode: &defaultMode,
+	volumes = append(volumes, corev1.Volume{
+		Name: "config",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: ConfigMapName(instance),
 				},
+				DefaultMode: &defaultMode,
 			},
-		})
-	} else {
-		// Always mount the operator-managed ConfigMap (even for vanilla
-		// deployments) — it contains gateway.bind=lan for health probes.
-		volumes = append(volumes, corev1.Volume{
-			Name: "config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: ConfigMapName(instance),
-					},
-					DefaultMode: &defaultMode,
-				},
-			},
-		})
-	}
+		},
+	})
 
 	// Workspace init volume (ConfigMap with seed files)
 	if hasWorkspaceFiles(instance) {

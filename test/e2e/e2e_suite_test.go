@@ -1104,6 +1104,115 @@ var _ = Describe("OpenClawInstance Controller", func() {
 		})
 	})
 
+	Context("When creating an instance with configMapRef (#136)", func() {
+		var namespace string
+
+		BeforeEach(func() {
+			namespace = "test-cmref-" + time.Now().Format("20060102150405")
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+		})
+
+		AfterEach(func() {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+			_ = k8sClient.Delete(ctx, ns)
+		})
+
+		It("Should enrich external ConfigMap config with gateway auth", func() {
+			if os.Getenv("E2E_SKIP_RESOURCE_VALIDATION") == "true" {
+				Skip("Skipping resource validation in minimal mode")
+			}
+
+			instanceName := "cmref-enriched"
+
+			// Create external ConfigMap with partial config (no gateway auth)
+			externalCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-external-config",
+					Namespace: namespace,
+				},
+				Data: map[string]string{
+					"openclaw.json": `{"mcpServers":{"test":{"url":"http://localhost:3000"}}}`,
+				},
+			}
+			Expect(k8sClient.Create(ctx, externalCM)).Should(Succeed())
+
+			// Create instance referencing the external ConfigMap
+			instance := &openclawv1alpha1.OpenClawInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      instanceName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"openclaw.rocks/skip-backup": "true",
+					},
+				},
+				Spec: openclawv1alpha1.OpenClawInstanceSpec{
+					Image: openclawv1alpha1.ImageSpec{
+						Repository: "ghcr.io/openclaw/openclaw",
+						Tag:        "latest",
+					},
+					Config: openclawv1alpha1.ConfigSpec{
+						ConfigMapRef: &openclawv1alpha1.ConfigMapKeySelector{
+							Name: "my-external-config",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, instance)).Should(Succeed())
+
+			// Verify operator-managed ConfigMap is created with enriched content
+			cm := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      resources.ConfigMapName(instance),
+					Namespace: namespace,
+				}, cm)
+			}, timeout, interval).Should(Succeed())
+
+			configContent, ok := cm.Data["openclaw.json"]
+			Expect(ok).To(BeTrue(), "operator-managed ConfigMap should have openclaw.json key")
+
+			var parsed map[string]interface{}
+			Expect(json.Unmarshal([]byte(configContent), &parsed)).To(Succeed())
+
+			// User config should be preserved
+			_, hasMCP := parsed["mcpServers"]
+			Expect(hasMCP).To(BeTrue(), "user's mcpServers should be preserved")
+
+			// Gateway auth should be injected
+			gw, ok := parsed["gateway"].(map[string]interface{})
+			Expect(ok).To(BeTrue(), "config should have gateway key")
+			Expect(gw["bind"]).To(Equal("lan"), "gateway.bind should be lan")
+			auth, ok := gw["auth"].(map[string]interface{})
+			Expect(ok).To(BeTrue(), "gateway should have auth key (injected by operator)")
+			Expect(auth["mode"]).To(Equal("token"), "gateway.auth.mode should be token")
+			Expect(auth["token"]).NotTo(BeEmpty(), "gateway.auth.token should be set")
+
+			// Verify StatefulSet config volume points to operator-managed CM (not external)
+			statefulSet := &appsv1.StatefulSet{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      instanceName,
+					Namespace: namespace,
+				}, statefulSet)
+			}, timeout, interval).Should(Succeed())
+
+			var configVol *corev1.Volume
+			for i := range statefulSet.Spec.Template.Spec.Volumes {
+				if statefulSet.Spec.Template.Spec.Volumes[i].Name == "config" {
+					configVol = &statefulSet.Spec.Template.Spec.Volumes[i]
+					break
+				}
+			}
+			Expect(configVol).NotTo(BeNil(), "config volume should exist")
+			Expect(configVol.ConfigMap).NotTo(BeNil())
+			Expect(configVol.ConfigMap.Name).To(Equal(resources.ConfigMapName(instance)),
+				"config volume should reference operator-managed CM, not external CM")
+
+			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
+		})
+	})
+
 	Context("When the operator is running", func() {
 		It("Should have the controller manager deployment available", func() {
 			deployment := &appsv1.Deployment{}

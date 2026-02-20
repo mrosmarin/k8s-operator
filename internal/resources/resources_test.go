@@ -739,7 +739,9 @@ func TestBuildStatefulSet_ConfigVolume_ConfigMapRef(t *testing.T) {
 
 	sts := BuildStatefulSet(instance)
 
-	// Init container should copy the custom key from ConfigMap to data volume
+	// Init container should copy openclaw.json (operator-managed key) from ConfigMap to data volume.
+	// The controller reads the external CM and writes enriched content into the
+	// operator-managed CM under "openclaw.json", so the init container always uses that key.
 	initContainers := sts.Spec.Template.Spec.InitContainers
 	if len(initContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(initContainers))
@@ -748,20 +750,20 @@ func TestBuildStatefulSet_ConfigVolume_ConfigMapRef(t *testing.T) {
 	assertVolumeMount(t, initC.VolumeMounts, "data", "/data")
 	assertVolumeMount(t, initC.VolumeMounts, "config", "/config")
 
-	// Verify the command copies the custom key (shell-quoted)
-	expectedCmd := "cp /config/'my-config.json' /data/openclaw.json"
+	// Verify the command copies openclaw.json (not the custom key)
+	expectedCmd := "cp /config/'openclaw.json' /data/openclaw.json"
 	if len(initC.Command) != 3 || initC.Command[2] != expectedCmd {
 		t.Errorf("init container command = %v, want sh -c %q", initC.Command, expectedCmd)
 	}
 
-	// Volume should reference external configmap
+	// Volume should reference the operator-managed ConfigMap (not the external one)
 	volumes := sts.Spec.Template.Spec.Volumes
 	cfgVol := findVolume(volumes, "config")
 	if cfgVol == nil {
 		t.Fatal("config volume not found")
 	}
-	if cfgVol.ConfigMap.Name != "external-config" {
-		t.Errorf("config volume configmap name = %q, want %q", cfgVol.ConfigMap.Name, "external-config")
+	if cfgVol.ConfigMap.Name != "ref-cfg-config" {
+		t.Errorf("config volume configmap name = %q, want %q", cfgVol.ConfigMap.Name, "ref-cfg-config")
 	}
 }
 
@@ -769,12 +771,12 @@ func TestBuildStatefulSet_ConfigMapRef_DefaultKey(t *testing.T) {
 	instance := newTestInstance("ref-default-key")
 	instance.Spec.Config.ConfigMapRef = &openclawv1alpha1.ConfigMapKeySelector{
 		Name: "external-config",
-		// Key not set - should default to "openclaw.json"
+		// Key not set - operator-managed CM always uses "openclaw.json"
 	}
 
 	sts := BuildStatefulSet(instance)
 
-	// Init container should use default key "openclaw.json"
+	// Init container should use "openclaw.json" (operator-managed key)
 	initContainers := sts.Spec.Template.Spec.InitContainers
 	if len(initContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(initContainers))
@@ -782,6 +784,15 @@ func TestBuildStatefulSet_ConfigMapRef_DefaultKey(t *testing.T) {
 	expectedCmd := "cp /config/'openclaw.json' /data/openclaw.json"
 	if initContainers[0].Command[2] != expectedCmd {
 		t.Errorf("init container command = %q, want %q", initContainers[0].Command[2], expectedCmd)
+	}
+
+	// Volume should reference the operator-managed ConfigMap
+	cfgVol := findVolume(sts.Spec.Template.Spec.Volumes, "config")
+	if cfgVol == nil {
+		t.Fatal("config volume not found")
+	}
+	if cfgVol.ConfigMap.Name != "ref-default-key-config" {
+		t.Errorf("config volume configmap name = %q, want %q", cfgVol.ConfigMap.Name, "ref-default-key-config")
 	}
 }
 
@@ -897,8 +908,11 @@ func TestBuildStatefulSet_PostStart_ConfigMapRef(t *testing.T) {
 		t.Fatal("expected postStart lifecycle hook with configMapRef")
 	}
 
+	// PostStart should use openclaw.json (operator-managed key), not the
+	// external CM's custom key, because the operator-managed CM always
+	// stores enriched config under "openclaw.json".
 	cmd := main.Lifecycle.PostStart.Exec.Command[2]
-	expected := "cp /operator-config/my-config.json /home/openclaw/.openclaw/openclaw.json"
+	expected := "cp /operator-config/openclaw.json /home/openclaw/.openclaw/openclaw.json"
 	if cmd != expected {
 		t.Errorf("postStart command = %q, want %q", cmd, expected)
 	}
@@ -1661,6 +1675,111 @@ func TestBuildConfigMap_InvalidJSON_RawPreserved(t *testing.T) {
 	}
 	if gw["bind"] != "lan" {
 		t.Errorf("gateway.bind = %v, want %q", gw["bind"], "lan")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BuildConfigMapFromBytes tests
+// ---------------------------------------------------------------------------
+
+func TestBuildConfigMapFromBytes_EnrichesExternalConfig(t *testing.T) {
+	instance := newTestInstance("from-bytes")
+	externalConfig := []byte(`{"mcpServers":{"test":{"url":"http://localhost"}}}`)
+
+	cm := BuildConfigMapFromBytes(instance, externalConfig, "my-gateway-token")
+
+	content := cm.Data["openclaw.json"]
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// Verify user config is preserved
+	if _, ok := parsed["mcpServers"]; !ok {
+		t.Error("mcpServers should be preserved from external config")
+	}
+
+	// Verify gateway auth was injected
+	gw, ok := parsed["gateway"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected gateway key after enrichment")
+	}
+	auth, ok := gw["auth"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected gateway.auth key after enrichment")
+	}
+	if auth["mode"] != "token" {
+		t.Errorf("gateway.auth.mode = %v, want %q", auth["mode"], "token")
+	}
+	if auth["token"] != "my-gateway-token" {
+		t.Errorf("gateway.auth.token = %v, want %q", auth["token"], "my-gateway-token")
+	}
+
+	// Verify gateway.bind was injected
+	if gw["bind"] != "lan" {
+		t.Errorf("gateway.bind = %v, want %q", gw["bind"], "lan")
+	}
+}
+
+func TestBuildConfigMapFromBytes_PreservesUserConfig(t *testing.T) {
+	instance := newTestInstance("from-bytes-preserve")
+	externalConfig := []byte(`{
+		"mcpServers": {"fetch": {"url": "http://localhost:3000"}},
+		"globalShortcut": "Ctrl+Space",
+		"selectedProvider": "anthropic"
+	}`)
+
+	cm := BuildConfigMapFromBytes(instance, externalConfig, "tok")
+
+	content := cm.Data["openclaw.json"]
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	if parsed["globalShortcut"] != "Ctrl+Space" {
+		t.Errorf("globalShortcut = %v, want %q", parsed["globalShortcut"], "Ctrl+Space")
+	}
+	if parsed["selectedProvider"] != "anthropic" {
+		t.Errorf("selectedProvider = %v, want %q", parsed["selectedProvider"], "anthropic")
+	}
+	if _, ok := parsed["mcpServers"]; !ok {
+		t.Error("mcpServers should be preserved from external config")
+	}
+}
+
+func TestBuildConfigMapFromBytes_EmptyBytes(t *testing.T) {
+	instance := newTestInstance("from-bytes-empty")
+
+	cm := BuildConfigMapFromBytes(instance, nil, "tok")
+
+	content := cm.Data["openclaw.json"]
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// Should still have gateway enrichment
+	gw, ok := parsed["gateway"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected gateway key even with empty base config")
+	}
+	if gw["bind"] != "lan" {
+		t.Errorf("gateway.bind = %v, want %q", gw["bind"], "lan")
+	}
+}
+
+func TestBuildConfigMapFromBytes_JSON5Passthrough(t *testing.T) {
+	instance := newTestInstance("from-bytes-json5")
+	// JSON5 content can't be parsed as JSON, so enrichment returns it unchanged
+	json5Content := []byte(`{mcpServers: {test: {url: "http://localhost"}}}`)
+
+	cm := BuildConfigMapFromBytes(instance, json5Content, "tok")
+
+	// JSON5 content should pass through unchanged (enrichment can't parse it)
+	content := cm.Data["openclaw.json"]
+	if content != string(json5Content) {
+		t.Errorf("JSON5 content should pass through unchanged, got %q", content)
 	}
 }
 
