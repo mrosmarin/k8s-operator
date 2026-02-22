@@ -203,3 +203,15 @@ jobs:
 
       - name: Run E2E tests
         run: make test-e2e
+
+      - name: Dump operator logs
+        if: failure()
+        run: |
+          echo "=== Operator pod status ==="
+          kubectl get pods -n openclaw-operator-system
+          echo "=== OpenClawInstance resources ==="
+          kubectl get openclawinstances -A -o wide || true
+          echo "=== OpenClawSelfConfig resources ==="
+          kubectl get openclawselfconfigs -A -o wide || true
+          echo "=== Operator logs (all) ==="
+          kubectl logs -n openclaw-operator-system -l control-plane=controller-manager --tail=-1 || true

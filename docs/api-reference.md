@@ -851,6 +851,89 @@ spec:
 
 ---
 
+## OpenClawSelfConfig (v1alpha1)
+
+**Group**: `openclaw.rocks`
+**Version**: `v1alpha1`
+**Kind**: `OpenClawSelfConfig`
+**Scope**: Namespaced
+**Short name**: `ocsc`
+
+An `OpenClawSelfConfig` represents a request from an agent to modify its own `OpenClawInstance` spec. The operator validates the request against the parent instance's `selfConfigure.allowedActions` policy and applies approved changes.
+
+### Print Columns
+
+| Column    | JSON Path                          |
+|-----------|------------------------------------|
+| Instance  | `.spec.instanceRef`                |
+| Phase     | `.status.phase`                    |
+| Age       | `.metadata.creationTimestamp`      |
+
+### Spec Fields
+
+| Field                | Type                      | Default | Description                                                                   |
+|----------------------|---------------------------|---------|-------------------------------------------------------------------------------|
+| `instanceRef`        | `string`                  | (required) | Name of the parent `OpenClawInstance` in the same namespace.               |
+| `addSkills`          | `[]string`                | --      | Skills to add. Max 10 items.                                                  |
+| `removeSkills`       | `[]string`                | --      | Skills to remove. Max 10 items.                                               |
+| `configPatch`        | `RawConfig`               | --      | Partial JSON to deep-merge into `spec.config.raw`. Protected keys under `gateway` are rejected. |
+| `addWorkspaceFiles`  | `map[string]string`       | --      | Filenames to content to add to workspace. Max 10 entries.                     |
+| `removeWorkspaceFiles` | `[]string`              | --      | Workspace filenames to remove. Max 10 items.                                  |
+| `addEnvVars`         | `[]SelfConfigEnvVar`      | --      | Environment variables to add (plain values only, no secret refs). Max 10 items. |
+| `removeEnvVars`      | `[]string`                | --      | Environment variable names to remove. Max 10 items.                           |
+
+**SelfConfigEnvVar:**
+
+| Field   | Type     | Description                   |
+|---------|----------|-------------------------------|
+| `name`  | `string` | Environment variable name.    |
+| `value` | `string` | Environment variable value.   |
+
+### Status Fields
+
+| Field            | Type          | Description                                                  |
+|------------------|---------------|--------------------------------------------------------------|
+| `phase`          | `string`      | Processing state: `Pending`, `Applied`, `Failed`, `Denied`.  |
+| `message`        | `string`      | Human-readable details about the current phase.              |
+| `completionTime` | `*metav1.Time`| Timestamp when the request reached a terminal phase.         |
+
+### Lifecycle
+
+1. Agent creates an `OpenClawSelfConfig` resource -- status starts as `Pending`
+2. Operator fetches the parent `OpenClawInstance` and validates:
+   - `selfConfigure.enabled` must be `true` (otherwise: `Denied`)
+   - All requested action categories must be in `allowedActions` (otherwise: `Denied`)
+   - Protected config keys (`gateway.*`) and env var names are rejected (otherwise: `Failed`)
+3. Operator applies changes to the parent instance spec
+4. Status transitions to `Applied` (success) or `Failed` (error)
+5. An owner reference is set to the parent instance for garbage collection
+6. Terminal requests are auto-deleted after 1 hour
+
+### Protected Resources
+
+The following are protected and cannot be modified via self-configure:
+
+- **Config keys**: `gateway` (entire subtree) -- prevents breaking gateway auth
+- **Environment variables**: `HOME`, `PATH`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_INSTANCE_NAME`, `OPENCLAW_NAMESPACE`, `OPENCLAW_DISABLE_BONJOUR`, `CHROMIUM_URL`, `OLLAMA_HOST`, `TS_AUTHKEY`, `TS_HOSTNAME`, `NODE_EXTRA_CA_CERTS`, `NPM_CONFIG_CACHE`, `NPM_CONFIG_IGNORE_SCRIPTS`
+
+### Example
+
+```yaml
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawSelfConfig
+metadata:
+  name: add-fetch-skill
+spec:
+  instanceRef: my-agent
+  addSkills:
+    - "@anthropic/mcp-server-fetch"
+  addEnvVars:
+    - name: MY_CUSTOM_VAR
+      value: "hello"
+```
+
+---
+
 ## Full Example
 
 ```yaml
