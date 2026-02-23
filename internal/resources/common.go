@@ -83,6 +83,9 @@ const (
 
 	// GatewayBindLAN is the default bind value for LAN mode (pod IP, required for TCPSocket probes)
 	GatewayBindLAN = "lan"
+
+	// DefaultMetricsPort is the default port for the Prometheus metrics endpoint
+	DefaultMetricsPort int32 = 9090
 )
 
 // Labels returns the standard labels for an OpenClawInstance
@@ -203,6 +206,19 @@ func IsTailscaleServeOrFunnel(instance *openclawv1alpha1.OpenClawInstance) bool 
 	}
 	mode := instance.Spec.Tailscale.Mode
 	return mode == "" || mode == TailscaleModeServe || mode == TailscaleModeFunnel
+}
+
+// IsMetricsEnabled returns true if the metrics endpoint is enabled for the instance
+func IsMetricsEnabled(instance *openclawv1alpha1.OpenClawInstance) bool {
+	return instance.Spec.Observability.Metrics.Enabled == nil || *instance.Spec.Observability.Metrics.Enabled
+}
+
+// MetricsPort returns the configured metrics port or the default
+func MetricsPort(instance *openclawv1alpha1.OpenClawInstance) int32 {
+	if instance.Spec.Observability.Metrics.Port != nil {
+		return *instance.Spec.Observability.Metrics.Port
+	}
+	return DefaultMetricsPort
 }
 
 // Ptr returns a pointer to the given value
