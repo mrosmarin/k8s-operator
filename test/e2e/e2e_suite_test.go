@@ -167,8 +167,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				}, service)
 			}, timeout, interval).Should(Succeed())
 
-			// Verify the StatefulSet has the correct image
-			Expect(statefulSet.Spec.Template.Spec.Containers).To(HaveLen(1))
+			// Verify the StatefulSet has main + gateway-proxy containers
+			Expect(statefulSet.Spec.Template.Spec.Containers).To(HaveLen(2))
 			Expect(statefulSet.Spec.Template.Spec.Containers[0].Image).To(Equal("ghcr.io/openclaw/openclaw:latest"))
 
 			// Clean up
@@ -182,6 +182,90 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				}, statefulSet)
 				return err != nil
 			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("Should create gateway proxy sidecar", func() {
+			instanceName := "proxy-sidecar-instance"
+
+			if os.Getenv("E2E_SKIP_RESOURCE_VALIDATION") == "true" {
+				Skip("Skipping resource validation in minimal mode")
+			}
+
+			instance := &openclawv1alpha1.OpenClawInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      instanceName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"openclaw.rocks/skip-backup": "true",
+					},
+				},
+				Spec: openclawv1alpha1.OpenClawInstanceSpec{
+					Image: openclawv1alpha1.ImageSpec{
+						Repository: "ghcr.io/openclaw/openclaw",
+						Tag:        "latest",
+					},
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, instance)).Should(Succeed())
+
+			// Verify StatefulSet has gateway-proxy container
+			statefulSet := &appsv1.StatefulSet{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      instanceName,
+					Namespace: namespace,
+				}, statefulSet)
+			}, timeout, interval).Should(Succeed())
+
+			var proxyContainer *corev1.Container
+			for i := range statefulSet.Spec.Template.Spec.Containers {
+				if statefulSet.Spec.Template.Spec.Containers[i].Name == "gateway-proxy" {
+					proxyContainer = &statefulSet.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(proxyContainer).NotTo(BeNil(), "StatefulSet should have gateway-proxy container")
+			Expect(proxyContainer.Image).To(Equal(resources.DefaultGatewayProxyImage),
+				"gateway-proxy should use the default nginx image")
+
+			// Verify Service targetPort points to proxy ports
+			service := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      instanceName,
+					Namespace: namespace,
+				}, service)
+			}, timeout, interval).Should(Succeed())
+
+			for _, port := range service.Spec.Ports {
+				if port.Name == "gateway" {
+					Expect(port.Port).To(Equal(int32(resources.GatewayPort)),
+						"gateway service port should be the original port")
+					Expect(port.TargetPort.IntValue()).To(Equal(int(resources.GatewayProxyPort)),
+						"gateway targetPort should point to the proxy port")
+				}
+				if port.Name == "canvas" {
+					Expect(port.Port).To(Equal(int32(resources.CanvasPort)),
+						"canvas service port should be the original port")
+					Expect(port.TargetPort.IntValue()).To(Equal(int(resources.CanvasProxyPort)),
+						"canvas targetPort should point to the proxy port")
+				}
+			}
+
+			// Verify ConfigMap has nginx.conf key
+			configMap := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      resources.ConfigMapName(instance),
+					Namespace: namespace,
+				}, configMap)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(configMap.Data).To(HaveKey(resources.NginxConfigKey),
+				"ConfigMap should contain nginx.conf key")
+
+			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
 		})
 
 		It("Should use shell-capable image for merge mode init container", func() {
@@ -371,7 +455,7 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			Expect(json.Unmarshal([]byte(configContent), &parsed)).To(Succeed())
 			gw, ok := parsed["gateway"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "config should have gateway key")
-			Expect(gw["bind"]).To(Equal("lan"), "gateway.bind should be lan")
+			Expect(gw["bind"]).To(Equal("loopback"), "gateway.bind should be loopback")
 
 			// Clean up via owner-reference garbage collection
 			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
@@ -1314,8 +1398,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			out, err := kubectlExec(namespace, podName,
 				"cat", "/home/openclaw/.openclaw/openclaw.json")
 			Expect(err).NotTo(HaveOccurred(), "should read config file: %s", out)
-			Expect(out).To(ContainSubstring(`"lan"`),
-				"config should contain gateway.bind=lan from operator enrichment")
+			Expect(out).To(ContainSubstring(`"loopback"`),
+				"config should contain gateway.bind=loopback from operator enrichment")
 
 			// Corrupt the config file on the PVC
 			_, err = kubectlExec(namespace, podName,
@@ -1395,8 +1479,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				"cat", "/home/openclaw/.openclaw/openclaw.json")
 			Expect(err).NotTo(HaveOccurred(),
 				"should read config after restart: %s", out)
-			Expect(out).To(ContainSubstring(`"lan"`),
-				"gateway.bind=lan should be restored by postStart hook")
+			Expect(out).To(ContainSubstring(`"loopback"`),
+				"gateway.bind=loopback should be restored by postStart hook")
 			Expect(out).NotTo(ContainSubstring("corrupted"),
 				"corrupted content should be overwritten by postStart hook")
 
@@ -1482,7 +1566,7 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			// Gateway auth should be injected
 			gw, ok := parsed["gateway"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "config should have gateway key")
-			Expect(gw["bind"]).To(Equal("lan"), "gateway.bind should be lan")
+			Expect(gw["bind"]).To(Equal("loopback"), "gateway.bind should be loopback")
 			auth, ok := gw["auth"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "gateway should have auth key (injected by operator)")
 			Expect(auth["mode"]).To(Equal("token"), "gateway.auth.mode should be token")
