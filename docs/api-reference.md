@@ -82,7 +82,7 @@ spec:
 
 | Field    | Type       | Default | Description                                                                                       |
 |----------|------------|---------|---------------------------------------------------------------------------------------------------|
-| `skills` | `[]string` | --      | Skills to install. Three formats supported: ClawHub identifiers (e.g., `@anthropic/mcp-server-fetch`), npm packages with `npm:` prefix (e.g., `npm:@openclaw/matrix`), and GitHub-hosted skill packs with `pack:` prefix (e.g., `pack:openclaw-rocks/skills/image-gen`). npm lifecycle scripts are disabled for security. Max 20 items. |
+| `skills` | `[]string` | --      | Skills to install. Three formats supported: ClawHub identifiers (e.g., `@anthropic/mcp-server-fetch`), npm packages with `npm:` prefix (e.g., `npm:@openclaw/matrix`), and GitHub-hosted skill packs with `pack:` prefix (e.g., `pack:openclaw-rocks/skills/image-gen`). ClawHub installs are idempotent - already-installed skills are skipped gracefully, making restarts safe with persistent storage. npm lifecycle scripts are disabled for security. Max 20 items. |
 
 ```yaml
 spec:

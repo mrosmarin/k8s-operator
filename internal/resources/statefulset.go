@@ -680,14 +680,40 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, skillPacks *Re
 	return strings.Join(lines, "\n")
 }
 
+// skillInstallWrapper is a shell function that wraps `clawhub install` to
+// tolerate "Already installed" errors, making the init container idempotent
+// when persistent storage is enabled (#258).
+const skillInstallWrapper = `_install_skill() {
+  local output
+  if output=$(npx -y clawhub install "$1" 2>&1); then
+    echo "$output"
+  elif echo "$output" | grep -q 'Already installed'; then
+    echo "Skill $1 already installed, skipping"
+  else
+    echo "$output" >&2
+    return 1
+  fi
+}`
+
 // parseSkillEntry returns the shell command to install a single skill entry.
 // Entries prefixed with "npm:" are installed via `npm install` into the PVC
-// node_modules. All other entries use `npx -y clawhub install`.
+// node_modules. All other entries use the _install_skill wrapper around
+// `npx -y clawhub install`.
 func parseSkillEntry(entry string) string {
 	if pkg, ok := strings.CutPrefix(entry, "npm:"); ok {
 		return fmt.Sprintf("cd /home/openclaw/.openclaw && npm install %s", shellQuote(pkg))
 	}
-	return fmt.Sprintf("npx -y clawhub install %s", shellQuote(entry))
+	return fmt.Sprintf("_install_skill %s", shellQuote(entry))
+}
+
+// hasClawHubSkills returns true if any entry is a ClawHub skill (not npm-prefixed).
+func hasClawHubSkills(skills []string) bool {
+	for _, s := range skills {
+		if !strings.HasPrefix(s, "npm:") {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildSkillsScript generates the shell script for the skills init container.
@@ -705,6 +731,10 @@ func BuildSkillsScript(instance *openclawv1alpha1.OpenClawInstance) string {
 	sort.Strings(skills)
 
 	var lines []string
+	lines = append(lines, "set -e")
+	if hasClawHubSkills(skills) {
+		lines = append(lines, skillInstallWrapper)
+	}
 	for _, skill := range skills {
 		lines = append(lines, parseSkillEntry(skill))
 	}

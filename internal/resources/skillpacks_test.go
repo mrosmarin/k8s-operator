@@ -106,8 +106,8 @@ func TestBuildSkillsScript_FiltersPackEntries(t *testing.T) {
 	if !strings.Contains(script, "npm install") {
 		t.Error("script should contain npm install for @openclaw/matrix")
 	}
-	if !strings.Contains(script, "clawhub install") {
-		t.Error("script should contain clawhub install for @anthropic/mcp-server-fetch")
+	if !strings.Contains(script, "_install_skill") {
+		t.Error("script should contain _install_skill for @anthropic/mcp-server-fetch")
 	}
 }
 

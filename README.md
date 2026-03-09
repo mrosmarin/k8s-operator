@@ -408,7 +408,7 @@ spec:
 
 ### Skill installation
 
-Install skills declaratively. The operator runs an init container that fetches each skill before the agent starts. Entries use ClawHub by default, or prefix with `npm:` to install from npmjs.com:
+Install skills declaratively. The operator runs an init container that fetches each skill before the agent starts. Entries use ClawHub by default, or prefix with `npm:` to install from npmjs.com. ClawHub installs are idempotent - if a skill is already installed (e.g., when using persistent storage), it is skipped rather than failing:
 
 ```yaml
 spec:
