@@ -424,5 +424,17 @@ var _ = Describe("S3 Helpers", func() {
 			Expect(container.TerminationMessagePath).To(Equal("/dev/termination-log"))
 			Expect(container.TerminationMessagePolicy).To(Equal(corev1.TerminationMessageReadFile))
 		})
+
+		It("Should set activeDeadlineSeconds on the Job to kill stuck backups", func() {
+			cronJob := buildBackupCronJob(instance, creds)
+			Expect(cronJob.Spec.JobTemplate.Spec.ActiveDeadlineSeconds).NotTo(BeNil())
+			Expect(*cronJob.Spec.JobTemplate.Spec.ActiveDeadlineSeconds).To(Equal(int64(3600)))
+		})
+
+		It("Should set startingDeadlineSeconds on the CronJob to skip stale runs", func() {
+			cronJob := buildBackupCronJob(instance, creds)
+			Expect(cronJob.Spec.StartingDeadlineSeconds).NotTo(BeNil())
+			Expect(*cronJob.Spec.StartingDeadlineSeconds).To(Equal(int64(600)))
+		})
 	})
 })

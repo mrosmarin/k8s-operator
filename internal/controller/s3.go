@@ -296,7 +296,9 @@ func buildBackupCronJob(
 	}
 
 	backoffLimit := int32(3)
-	ttl := int32(86400) // 24h
+	ttl := int32(86400)            // 24h
+	activeDeadline := int64(3600)  // 1h - kill stuck backup Jobs
+	startingDeadline := int64(600) // 10m - skip missed runs rather than firing all at once
 	gracePeriod := int64(30)
 
 	// Shell command: compute timestamped S3 path and run rclone sync
@@ -321,6 +323,7 @@ func buildBackupCronJob(
 		Spec: batchv1.CronJobSpec{
 			Schedule:                   instance.Spec.Backup.Schedule,
 			ConcurrencyPolicy:          batchv1.ForbidConcurrent,
+			StartingDeadlineSeconds:    &startingDeadline,
 			SuccessfulJobsHistoryLimit: &historyLimit,
 			FailedJobsHistoryLimit:     &failedHistoryLimit,
 			JobTemplate: batchv1.JobTemplateSpec{
@@ -328,6 +331,7 @@ func buildBackupCronJob(
 					Labels: labels,
 				},
 				Spec: batchv1.JobSpec{
+					ActiveDeadlineSeconds:   &activeDeadline,
 					BackoffLimit:            &backoffLimit,
 					TTLSecondsAfterFinished: &ttl,
 					Template: corev1.PodTemplateSpec{

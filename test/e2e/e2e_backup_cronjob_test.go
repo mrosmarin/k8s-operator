@@ -127,6 +127,10 @@ var _ = Describe("Periodic Backup CronJob", func() {
 
 			Expect(cronJob.Spec.Schedule).To(Equal("0 2 * * *"))
 			Expect(cronJob.Spec.ConcurrencyPolicy).To(Equal(batchv1.ForbidConcurrent))
+			Expect(cronJob.Spec.StartingDeadlineSeconds).NotTo(BeNil())
+			Expect(*cronJob.Spec.StartingDeadlineSeconds).To(Equal(int64(600)))
+			Expect(cronJob.Spec.JobTemplate.Spec.ActiveDeadlineSeconds).NotTo(BeNil())
+			Expect(*cronJob.Spec.JobTemplate.Spec.ActiveDeadlineSeconds).To(Equal(int64(3600)))
 
 			// Verify ScheduledBackupReady condition
 			Eventually(func() bool {
