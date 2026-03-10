@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0](https://github.com/openclaw-rocks/k8s-operator/compare/v0.10.30...v0.11.0) (2026-03-10)
+
+
+### Features
+
+* add chromium CDP proxy to inject anti-bot Chrome launch args ([1e30d22](https://github.com/openclaw-rocks/k8s-operator/commit/1e30d2243fc0efc01de9fbd7281cae3cc3e1bd8f)), closes [#270](https://github.com/openclaw-rocks/k8s-operator/issues/270)
+* chromium CDP proxy for anti-bot launch args ([e7d9d86](https://github.com/openclaw-rocks/k8s-operator/commit/e7d9d86d97035cb8bcd4e4331a24f9b9c3c23951))
+* **resources:** add logging and validation for resource quantities ([0dc3508](https://github.com/openclaw-rocks/k8s-operator/commit/0dc35087c96bebb78c720b9dd803e77e8e64340a))
+* validate existing PVC and improve resource parsing ([351c87a](https://github.com/openclaw-rocks/k8s-operator/commit/351c87a7b07ebe86338631d7018347ccfee10b2d))
+
+
+### Bug Fixes
+
+* handle merge commits in release tag creation step ([370edf6](https://github.com/openclaw-rocks/k8s-operator/commit/370edf6e2459147e06d6cf69d5e4f225f0e98da0))
+* handle merge commits in release tag creation step ([07b45bf](https://github.com/openclaw-rocks/k8s-operator/commit/07b45bfb2d1e2ca321e760921862542861c8974e))
+* resolve chromium sidecar startup race and NetworkPolicy gaps ([8579946](https://github.com/openclaw-rocks/k8s-operator/commit/857994691db3206fd904732f03d6fa677a809253))
+* resolve chromium sidecar startup race and NetworkPolicy gaps ([8e7fc99](https://github.com/openclaw-rocks/k8s-operator/commit/8e7fc99f6dc4cbedf264587547c07411534eefa5)), closes [#270](https://github.com/openclaw-rocks/k8s-operator/issues/270)
+
 ## [0.10.30](https://github.com/openclaw-rocks/k8s-operator/compare/v0.10.29...v0.10.30) (2026-03-10)
 
 
