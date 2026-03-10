@@ -566,18 +566,15 @@ stream {
 
 // chromiumProxyNginxConfig returns the nginx HTTP configuration for the
 // chromium CDP proxy sidecar. It sits between OpenClaw and the browserless
-// sidecar, routing WebSocket connections to the /chromium endpoint with
-// Chrome launch args (anti-bot flags + user ExtraArgs) via the `launch`
-// query parameter.
+// sidecar, injecting Chrome launch args (anti-bot flags + user ExtraArgs)
+// into every request via the `launch` query parameter. This is needed
+// because browserless v2 deprecated DEFAULT_LAUNCH_ARGS and only accepts
+// launch args per-request on the WebSocket URL.
 //
-// Why /chromium specifically: browserless v2 deprecated DEFAULT_LAUNCH_ARGS
-// and only applies the `launch` query parameter on its /chromium WebSocket
-// endpoint (which launches a new Chrome process). Other endpoints like
-// /devtools/browser/<id> connect to already-running Chrome and ignore
-// launch args entirely. By routing all WebSocket upgrades to /chromium,
-// every browser session gets fresh Chrome with the correct flags.
-//
-// HTTP requests (health checks, /json/version) pass through unchanged.
+// The config uses map directives to handle WebSocket connection upgrades
+// and appends the launch args to $request_uri directly in a plain
+// location / block. This avoids named locations (@chromium_ws) which
+// nginx does not allow when proxy_pass includes a URI.
 func chromiumProxyNginxConfig(instance *openclawv1alpha1.OpenClawInstance) string {
 	args := deduplicateArgs(DefaultChromiumLaunchArgs, instance.Spec.Chromium.ExtraArgs)
 
@@ -593,46 +590,38 @@ events {
 }
 
 http {
-    # Redirect temp/cache dirs to writable /tmp (rootfs is read-only)
     client_body_temp_path /tmp/client_body;
     proxy_temp_path /tmp/proxy;
     fastcgi_temp_path /tmp/fastcgi;
     uwsgi_temp_path /tmp/uwsgi;
     scgi_temp_path /tmp/scgi;
 
+    map $is_args $launch_sep {
+        "?"     "&";
+        default "?";
+    }
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
     server {
         listen 0.0.0.0:%d;
 
-        # WebSocket connections route to /chromium with launch args.
-        # browserless v2 only applies launch args on the /chromium endpoint
-        # (launches new Chrome), not /devtools/browser/ (existing Chrome).
-        location @chromium_ws {
-            proxy_pass http://127.0.0.1:%d/chromium?launch=%s;
+        location / {
+            proxy_pass http://127.0.0.1:%d$request_uri${launch_sep}launch=%s;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
+            proxy_set_header Connection $connection_upgrade;
             proxy_set_header Host $host;
             proxy_buffering off;
             proxy_read_timeout 86400s;
             proxy_send_timeout 86400s;
         }
-
-        location / {
-            # Route WebSocket upgrades to @chromium_ws via internal redirect.
-            error_page 418 = @chromium_ws;
-            if ($http_upgrade ~* "websocket") {
-                return 418;
-            }
-
-            # HTTP requests pass through to browserless unchanged.
-            proxy_pass http://127.0.0.1:%d;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_buffering off;
-        }
     }
 }
-`, ChromiumProxyPort, ChromiumPort, encoded, ChromiumPort)
+`, ChromiumProxyPort, ChromiumPort, encoded)
 }
 
 // deduplicateArgs merges default and extra Chrome launch args, removing

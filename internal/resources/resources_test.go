@@ -10560,24 +10560,34 @@ func TestBuildConfigMap_ChromiumProxyNginxConfig(t *testing.T) {
 		t.Error("proxy config should contain user ExtraArgs")
 	}
 
-	// Should have WebSocket upgrade headers in @chromium_ws location
+	// Should have WebSocket upgrade headers via map directive
 	if !strings.Contains(proxyConfig, "proxy_set_header Upgrade") {
 		t.Error("proxy config should handle WebSocket upgrades")
 	}
 
-	// WebSocket connections should route to /chromium endpoint (not /devtools/)
-	if !strings.Contains(proxyConfig, fmt.Sprintf("proxy_pass http://127.0.0.1:%d/chromium?launch=", ChromiumPort)) {
-		t.Error("proxy config should route WebSocket to /chromium endpoint with launch args")
+	// Should use map directive for connection upgrade (not named location)
+	if !strings.Contains(proxyConfig, "map $http_upgrade $connection_upgrade") {
+		t.Error("proxy config should use map directive for connection upgrade")
 	}
 
-	// Should use named location for WebSocket routing
-	if !strings.Contains(proxyConfig, "location @chromium_ws") {
-		t.Error("proxy config should have @chromium_ws named location")
+	// Should use map directive for launch separator
+	if !strings.Contains(proxyConfig, "map $is_args $launch_sep") {
+		t.Error("proxy config should use map directive for launch separator")
 	}
 
-	// Should redirect WebSocket upgrades via error_page
-	if !strings.Contains(proxyConfig, "error_page 418") {
-		t.Error("proxy config should use error_page 418 for WebSocket routing")
+	// Should append launch args to $request_uri in location /
+	if !strings.Contains(proxyConfig, "launch=") {
+		t.Error("proxy config should append launch args to request URI")
+	}
+
+	// Should NOT use named locations (nginx bug: proxy_pass URI in named location)
+	if strings.Contains(proxyConfig, "location @") {
+		t.Error("proxy config should not use named locations (incompatible with proxy_pass URI)")
+	}
+
+	// Should NOT use error_page redirect trick
+	if strings.Contains(proxyConfig, "error_page 418") {
+		t.Error("proxy config should not use error_page 418 redirect")
 	}
 }
 
