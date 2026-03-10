@@ -491,7 +491,7 @@ func buildInitContainers(instance *openclawv1alpha1.OpenClawInstance, skillPacks
 		// overwrite mode uses busybox (lightweight, only needs cp).
 		// Note: ghcr.io/jqlang/jq and ghcr.io/astral-sh/uv base tags are
 		// distroless (no shell), so we cannot use them with "sh -c".
-		initImage := "busybox:1.37"
+		initImage := ApplyRegistryOverride("busybox:1.37", instance.Spec.Registry)
 		if instance.Spec.Config.MergeMode == ConfigMergeModeMerge || instance.Spec.Config.Format == ConfigFormatJSON5 {
 			initImage = GetImage(instance)
 		}
@@ -541,7 +541,7 @@ func buildInitContainers(instance *openclawv1alpha1.OpenClawInstance, skillPacks
 	// - init-uv: copies uv binary so agents can "uv tool install" CLI tools
 	// - init-pip: bootstraps pip via ensurepip so agents can "pip install <pkg>"
 	//   (PIP_USER=1 makes pip write to the writable ~/.local/ PVC subpath)
-	initContainers = append(initContainers, buildUvInitContainer(), buildPipInitContainer(instance))
+	initContainers = append(initContainers, buildUvInitContainer(instance), buildPipInitContainer(instance))
 
 	// Runtime dependency init containers (run before skills so skills can use pnpm/python)
 	if instance.Spec.RuntimeDeps.Pnpm {
@@ -906,7 +906,7 @@ pnpm --version`
 // access to "uv pip install" for Python packages and "uv tool install" for CLI
 // tools without any manual bootstrapping. The check is idempotent - subsequent
 // pod starts skip the copy if uv is already present.
-func buildUvInitContainer() corev1.Container {
+func buildUvInitContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	script := `set -e
 if [ -x /home/openclaw/.local/bin/uv ]; then echo "uv already installed"; exit 0; fi
 mkdir -p /home/openclaw/.local/bin
@@ -915,7 +915,7 @@ echo "uv $(/home/openclaw/.local/bin/uv --version) installed"`
 
 	return corev1.Container{
 		Name:                     "init-uv",
-		Image:                    UvImage,
+		Image:                    ApplyRegistryOverride(UvImage, instance.Spec.Registry),
 		Command:                  []string{"sh", "-c", script},
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
@@ -1018,7 +1018,7 @@ uv --version`
 
 	return corev1.Container{
 		Name:                     "init-python",
-		Image:                    UvImage,
+		Image:                    ApplyRegistryOverride(UvImage, instance.Spec.Registry),
 		Command:                  []string{"sh", "-c", script},
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		Env:                      env,
@@ -1185,10 +1185,10 @@ func buildTailscaleBinInitContainer(instance *openclawv1alpha1.OpenClawInstance)
 
 // buildGatewayProxyContainer creates the nginx reverse proxy sidecar that
 // exposes the loopback-bound gateway and canvas ports for external access.
-func buildGatewayProxyContainer(_ *openclawv1alpha1.OpenClawInstance) corev1.Container {
+func buildGatewayProxyContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	return corev1.Container{
 		Name:            "gateway-proxy",
-		Image:           DefaultGatewayProxyImage,
+		Image:           ApplyRegistryOverride(DefaultGatewayProxyImage, instance.Spec.Registry),
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{
@@ -1245,10 +1245,10 @@ func buildGatewayProxyContainer(_ *openclawv1alpha1.OpenClawInstance) corev1.Con
 // injects Chrome launch args (anti-bot flags + ExtraArgs) into every
 // browserless request. It runs as a native sidecar after the browserless
 // container to guarantee startup ordering.
-func buildChromiumProxyContainer(_ *openclawv1alpha1.OpenClawInstance) corev1.Container {
+func buildChromiumProxyContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	return corev1.Container{
 		Name:            "chromium-proxy",
-		Image:           DefaultGatewayProxyImage,
+		Image:           ApplyRegistryOverride(DefaultGatewayProxyImage, instance.Spec.Registry),
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{
@@ -1326,6 +1326,7 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 	if instance.Spec.Chromium.Image.Digest != "" {
 		image = repo + "@" + instance.Spec.Chromium.Image.Digest
 	}
+	image = ApplyRegistryOverride(image, instance.Spec.Registry)
 
 	chromiumMounts := []corev1.VolumeMount{
 		{
@@ -1452,6 +1453,7 @@ func buildOllamaContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Co
 	if instance.Spec.Ollama.Image.Digest != "" {
 		image = repo + "@" + instance.Spec.Ollama.Image.Digest
 	}
+	image = ApplyRegistryOverride(image, instance.Spec.Registry)
 
 	container := corev1.Container{
 		Name:                     "ollama",
@@ -1506,6 +1508,7 @@ func buildWebTerminalContainer(instance *openclawv1alpha1.OpenClawInstance) core
 	if instance.Spec.WebTerminal.Image.Digest != "" {
 		image = repo + "@" + instance.Spec.WebTerminal.Image.Digest
 	}
+	image = ApplyRegistryOverride(image, instance.Spec.Registry)
 
 	// Build ttyd command flags
 	var flags []string
@@ -1659,6 +1662,7 @@ func buildOllamaModelPullInitContainer(instance *openclawv1alpha1.OpenClawInstan
 	if instance.Spec.Ollama.Image.Digest != "" {
 		image = repo + "@" + instance.Spec.Ollama.Image.Digest
 	}
+	image = ApplyRegistryOverride(image, instance.Spec.Registry)
 
 	return corev1.Container{
 		Name:                     "init-ollama",

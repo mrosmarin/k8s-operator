@@ -9,6 +9,14 @@ import (
 
 // OpenClawInstanceSpec defines the desired state of OpenClawInstance
 type OpenClawInstanceSpec struct {
+	// Registry is the global container image registry override.
+	// When set, this registry replaces the registry part of all container images
+	// used by the instance (main container, sidecars, init containers).
+	// Example: "my-registry.example.com" will change "ghcr.io/openclaw/openclaw:latest"
+	// to "my-registry.example.com/openclaw/openclaw:latest".
+	// +optional
+	Registry string `json:"registry,omitempty"`
+
 	// Image configuration for the OpenClaw container
 	// +optional
 	Image ImageSpec `json:"image,omitempty"`

@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -271,10 +273,13 @@ func GetImageTag(instance *openclawv1alpha1.OpenClawInstance) string {
 // GetImage returns the full image reference
 func GetImage(instance *openclawv1alpha1.OpenClawInstance) string {
 	repo := GetImageRepository(instance)
+	var image string
 	if instance.Spec.Image.Digest != "" {
-		return repo + "@" + instance.Spec.Image.Digest
+		image = repo + "@" + instance.Spec.Image.Digest
+	} else {
+		image = repo + ":" + GetImageTag(instance)
 	}
-	return repo + ":" + GetImageTag(instance)
+	return ApplyRegistryOverride(image, instance.Spec.Registry)
 }
 
 // GetTailscaleImage returns the full Tailscale sidecar image reference
@@ -284,15 +289,17 @@ func GetTailscaleImage(instance *openclawv1alpha1.OpenClawInstance) string {
 		repo = DefaultTailscaleImage
 	}
 
+	var image string
 	if instance.Spec.Tailscale.Image.Digest != "" {
-		return repo + "@" + instance.Spec.Tailscale.Image.Digest
+		image = repo + "@" + instance.Spec.Tailscale.Image.Digest
+	} else {
+		tag := instance.Spec.Tailscale.Image.Tag
+		if tag == "" {
+			tag = DefaultImageTag
+		}
+		image = repo + ":" + tag
 	}
-
-	tag := instance.Spec.Tailscale.Image.Tag
-	if tag == "" {
-		tag = DefaultImageTag
-	}
-	return repo + ":" + tag
+	return ApplyRegistryOverride(image, instance.Spec.Registry)
 }
 
 // IsMetricsEnabled returns true if the metrics endpoint is enabled for the instance
@@ -325,4 +332,72 @@ func ParseQuantity(s, defaultValue string) resource.Quantity {
 		return resource.MustParse(defaultValue)
 	}
 	return q
+}
+
+// ApplyRegistryOverride replaces the registry part of an image reference with
+// the given registry if the registry is not empty.
+//
+// Examples:
+//
+//	ApplyRegistryOverride("ghcr.io/openclaw/openclaw:latest", "my-registry.example.com")
+//	→ "my-registry.example.com/openclaw/openclaw:latest"
+//
+//	ApplyRegistryOverride("ollama/ollama:latest", "my-registry.example.com")
+//	→ "my-registry.example.com/ollama/ollama:latest"
+//
+//	ApplyRegistryOverride("nginx:1.27-alpine", "my-registry.example.com")
+//	→ "my-registry.example.com/nginx:1.27-alpine"
+//
+//	ApplyRegistryOverride("ghcr.io/openclaw/openclaw:latest", "")
+//	→ "ghcr.io/openclaw/openclaw:latest" (unchanged)
+func ApplyRegistryOverride(image, registry string) string {
+	if registry == "" {
+		return image
+	}
+	registry = strings.TrimRight(registry, "/")
+
+	slashIndex := strings.Index(image, "/")
+	if slashIndex == -1 {
+		// No slashes - it's just an image name (possibly with tag/digest)
+		return registry + "/" + image
+	}
+
+	firstPart := image[:slashIndex]
+	if looksLikeRegistry(firstPart) {
+		// Replace the registry part
+		return registry + image[slashIndex:]
+	}
+
+	// The first part isn't a registry, just prepend the registry
+	return registry + "/" + image
+}
+
+// looksLikeRegistry checks if a string looks like a container registry hostname.
+func looksLikeRegistry(s string) bool {
+	// Contains a dot - definitely a registry (e.g., ghcr.io, docker.io)
+	if strings.Contains(s, ".") {
+		return true
+	}
+
+	// IPv6 address (e.g., [::1], [::1]:5000)
+	if strings.HasPrefix(s, "[") && strings.Contains(s, "]") {
+		return true
+	}
+
+	// Has a colon and everything after is digits - it's a registry with port (e.g., localhost:5000)
+	colonIdx := strings.LastIndex(s, ":")
+	if colonIdx != -1 && colonIdx < len(s)-1 {
+		allDigits := true
+		for _, c := range s[colonIdx+1:] {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return true
+		}
+	}
+
+	return false
 }

@@ -5524,6 +5524,14 @@ spec:
                         type: integer
                     type: object
                 type: object
+              registry:
+                description: |-
+                  Registry is the global container image registry override.
+                  When set, this registry replaces the registry part of all container images
+                  used by the instance (main container, sidecars, init containers).
+                  Example: "my-registry.example.com" will change "ghcr.io/openclaw/openclaw:latest"
+                  to "my-registry.example.com/openclaw/openclaw:latest".
+                type: string
               resources:
                 description: Resources specifies the compute resources for the OpenClaw
                   container

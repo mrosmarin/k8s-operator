@@ -24,6 +24,31 @@ When listing resources with `kubectl get openclawinstances`, the following colum
 
 ## Spec Fields
 
+### spec.registry
+
+Global container image registry override. When set, this registry replaces the registry part of all container images used by the instance (main container, sidecars, init containers).
+
+| Field       | Type       | Default | Description                                                                                       |
+|-------------|------------|---------|---------------------------------------------------------------------------------------------------|
+| `registry`  | `string`   | --      | Global registry hostname/port to use for all images. Example: `my-registry.example.com` or `my-registry:5000`. |
+
+**Example:**
+
+```yaml
+spec:
+  registry: my-registry.example.com
+```
+
+**Transformation examples:**
+
+| Original image | With `registry: my-registry.example.com` |
+|----------------|-------------------------------------------|
+| `ghcr.io/openclaw/openclaw:latest` | `my-registry.example.com/openclaw/openclaw:latest` |
+| `nginx:1.27-alpine` | `my-registry.example.com/nginx:1.27-alpine` |
+| `ollama/ollama:latest` | `my-registry.example.com/ollama/ollama:latest` |
+| `ghcr.io/openclaw/openclaw@sha256:abc123` | `my-registry.example.com/openclaw/openclaw@sha256:abc123` |
+
+
 ### spec.image
 
 Container image configuration for the main OpenClaw workload.
