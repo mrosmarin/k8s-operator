@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -246,5 +247,81 @@ func TestBuildStatefulSet_WithRegistry(t *testing.T) {
 	}
 	if !strings.HasPrefix(initUvContainer.Image, "my-registry.example.com/") {
 		t.Errorf("init-uv image = %q, want registry prefix", initUvContainer.Image)
+	}
+}
+
+func TestDeduplicateArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		defaults []string
+		extras   []string
+		expected []string
+	}{
+		{
+			name:     "no extras",
+			defaults: []string{"--no-first-run", "--no-sandbox"},
+			extras:   nil,
+			expected: []string{"--no-first-run", "--no-sandbox"},
+		},
+		{
+			name:     "no overlap",
+			defaults: []string{"--no-first-run"},
+			extras:   []string{"--window-size=1920,1080"},
+			expected: []string{"--no-first-run", "--window-size=1920,1080"},
+		},
+		{
+			name:     "exact duplicate removed",
+			defaults: []string{"--no-first-run", "--no-sandbox"},
+			extras:   []string{"--no-first-run"},
+			expected: []string{"--no-first-run", "--no-sandbox"},
+		},
+		{
+			name:     "user value overrides default",
+			defaults: []string{"--user-agent=Default"},
+			extras:   []string{"--user-agent=Custom"},
+			expected: []string{"--user-agent=Custom"},
+		},
+		{
+			name:     "mixed overlap and new",
+			defaults: []string{"--no-first-run", "--disable-blink-features=AutomationControlled"},
+			extras:   []string{"--no-first-run", "--window-size=1920,1080", "--user-agent=Bot/1.0"},
+			expected: []string{"--no-first-run", "--disable-blink-features=AutomationControlled", "--window-size=1920,1080", "--user-agent=Bot/1.0"},
+		},
+		{
+			name:     "both empty",
+			defaults: nil,
+			extras:   nil,
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := deduplicateArgs(tt.defaults, tt.extras)
+			if !reflect.DeepEqual(got, tt.expected) {
+				t.Errorf("deduplicateArgs() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestArgKey(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"--user-agent=Custom", "--user-agent"},
+		{"--no-sandbox", "--no-sandbox"},
+		{"--window-size=1920,1080", "--window-size"},
+		{"--disable-blink-features=AutomationControlled", "--disable-blink-features"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := argKey(tt.input)
+			if got != tt.expected {
+				t.Errorf("argKey(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
 	}
 }

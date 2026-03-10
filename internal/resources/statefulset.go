@@ -1372,8 +1372,9 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 
 	// NOTE: DEFAULT_LAUNCH_ARGS was deprecated in browserless v2.0.0 and is
 	// fully ignored. Chrome launch args are injected by the chromium-proxy
-	// nginx sidecar which appends DefaultChromiumLaunchArgs + ExtraArgs via
-	// the `launch` query parameter on every request to browserless.
+	// nginx sidecar which routes WebSocket connections to the /chromium
+	// endpoint with DefaultChromiumLaunchArgs + ExtraArgs via the `launch`
+	// query parameter. See chromiumProxyNginxConfig in configmap.go.
 
 	// When persistence is enabled, direct Chromium to store its profile data
 	// on the persistent volume so cookies, localStorage, and session tokens

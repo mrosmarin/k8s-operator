@@ -136,10 +136,11 @@ const (
 	DefaultMetricsPort int32 = 9090
 )
 
-// DefaultChromiumLaunchArgs are anti-bot Chrome flags injected by the
-// chromium CDP proxy into every browserless WebSocket connection.
-// Browserless v2 deprecated DEFAULT_LAUNCH_ARGS (fully ignored since v2.0.0)
-// and only accepts launch args via the `launch` query parameter.
+// DefaultChromiumLaunchArgs are anti-bot Chrome flags injected via the
+// chromium CDP proxy's `launch` query parameter. The proxy routes all
+// WebSocket connections to browserless's /chromium endpoint with these
+// flags (+ user ExtraArgs), ensuring every browser session gets a fresh
+// Chrome launched with the correct args. See chromiumProxyNginxConfig.
 var DefaultChromiumLaunchArgs = []string{
 	"--disable-blink-features=AutomationControlled",
 	"--disable-features=AutomationControlled",

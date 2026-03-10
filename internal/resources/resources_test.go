@@ -607,7 +607,8 @@ func TestBuildStatefulSet_ChromiumExtraArgs(t *testing.T) {
 		t.Errorf("expected no container Args, got %v", chromium.Args)
 	}
 
-	// DEFAULT_LAUNCH_ARGS no longer exists; ExtraArgs are currently not applied (TODO)
+	// DEFAULT_LAUNCH_ARGS is deprecated; ExtraArgs are injected via the
+	// chromium-proxy's nginx config (launch query parameter on /chromium endpoint).
 	for _, env := range chromium.Env {
 		if env.Name == "DEFAULT_LAUNCH_ARGS" {
 			t.Error("DEFAULT_LAUNCH_ARGS env var should not be set on chromium container")
@@ -10559,9 +10560,48 @@ func TestBuildConfigMap_ChromiumProxyNginxConfig(t *testing.T) {
 		t.Error("proxy config should contain user ExtraArgs")
 	}
 
-	// Should have WebSocket upgrade headers
+	// Should have WebSocket upgrade headers in @chromium_ws location
 	if !strings.Contains(proxyConfig, "proxy_set_header Upgrade") {
 		t.Error("proxy config should handle WebSocket upgrades")
+	}
+
+	// WebSocket connections should route to /chromium endpoint (not /devtools/)
+	if !strings.Contains(proxyConfig, fmt.Sprintf("proxy_pass http://127.0.0.1:%d/chromium?launch=", ChromiumPort)) {
+		t.Error("proxy config should route WebSocket to /chromium endpoint with launch args")
+	}
+
+	// Should use named location for WebSocket routing
+	if !strings.Contains(proxyConfig, "location @chromium_ws") {
+		t.Error("proxy config should have @chromium_ws named location")
+	}
+
+	// Should redirect WebSocket upgrades via error_page
+	if !strings.Contains(proxyConfig, "error_page 418") {
+		t.Error("proxy config should use error_page 418 for WebSocket routing")
+	}
+}
+
+func TestBuildConfigMap_ChromiumProxyDeduplicatesArgs(t *testing.T) {
+	instance := newTestInstance("cdp-dedup")
+	instance.Spec.Chromium.Enabled = true
+	// Include a flag that's already in DefaultChromiumLaunchArgs
+	instance.Spec.Chromium.ExtraArgs = []string{
+		"--no-first-run",
+		"--window-size=1920,1080",
+	}
+
+	cm := BuildConfigMap(instance, "", nil)
+	proxyConfig := cm.Data[ChromiumProxyNginxConfigKey]
+
+	// --no-first-run should appear only once (deduplicated)
+	count := strings.Count(proxyConfig, "no-first-run")
+	if count != 1 {
+		t.Errorf("--no-first-run should appear once (deduplicated), found %d times", count)
+	}
+
+	// --window-size should be present
+	if !strings.Contains(proxyConfig, "window-size") {
+		t.Error("proxy config should contain --window-size from ExtraArgs")
 	}
 }
 

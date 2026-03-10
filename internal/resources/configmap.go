@@ -566,14 +566,20 @@ stream {
 
 // chromiumProxyNginxConfig returns the nginx HTTP configuration for the
 // chromium CDP proxy sidecar. It sits between OpenClaw and the browserless
-// sidecar, injecting Chrome launch args (anti-bot flags + user ExtraArgs)
-// into every request via the `launch` query parameter. This is needed
-// because browserless v2 deprecated DEFAULT_LAUNCH_ARGS and only accepts
-// launch args per-request on the WebSocket URL.
+// sidecar, routing WebSocket connections to the /chromium endpoint with
+// Chrome launch args (anti-bot flags + user ExtraArgs) via the `launch`
+// query parameter.
+//
+// Why /chromium specifically: browserless v2 deprecated DEFAULT_LAUNCH_ARGS
+// and only applies the `launch` query parameter on its /chromium WebSocket
+// endpoint (which launches a new Chrome process). Other endpoints like
+// /devtools/browser/<id> connect to already-running Chrome and ignore
+// launch args entirely. By routing all WebSocket upgrades to /chromium,
+// every browser session gets fresh Chrome with the correct flags.
+//
+// HTTP requests (health checks, /json/version) pass through unchanged.
 func chromiumProxyNginxConfig(instance *openclawv1alpha1.OpenClawInstance) string {
-	args := make([]string, 0, len(DefaultChromiumLaunchArgs)+len(instance.Spec.Chromium.ExtraArgs))
-	args = append(args, DefaultChromiumLaunchArgs...)
-	args = append(args, instance.Spec.Chromium.ExtraArgs...)
+	args := deduplicateArgs(DefaultChromiumLaunchArgs, instance.Spec.Chromium.ExtraArgs)
 
 	launchJSON, _ := json.Marshal(map[string]interface{}{"args": args})
 	encoded := url.QueryEscape(string(launchJSON))
@@ -594,30 +600,72 @@ http {
     uwsgi_temp_path /tmp/uwsgi;
     scgi_temp_path /tmp/scgi;
 
-    map $is_args $launch_sep {
-        "?"     "&";
-        default "?";
-    }
-
-    map $http_upgrade $connection_upgrade {
-        default upgrade;
-        ''      close;
-    }
-
     server {
         listen 0.0.0.0:%d;
 
-        location / {
-            proxy_pass http://127.0.0.1:%d$request_uri${launch_sep}launch=%s;
+        # WebSocket connections route to /chromium with launch args.
+        # browserless v2 only applies launch args on the /chromium endpoint
+        # (launches new Chrome), not /devtools/browser/ (existing Chrome).
+        location @chromium_ws {
+            proxy_pass http://127.0.0.1:%d/chromium?launch=%s;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Connection "upgrade";
             proxy_set_header Host $host;
             proxy_buffering off;
             proxy_read_timeout 86400s;
             proxy_send_timeout 86400s;
         }
+
+        location / {
+            # Route WebSocket upgrades to @chromium_ws via internal redirect.
+            error_page 418 = @chromium_ws;
+            if ($http_upgrade ~* "websocket") {
+                return 418;
+            }
+
+            # HTTP requests pass through to browserless unchanged.
+            proxy_pass http://127.0.0.1:%d;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+        }
     }
 }
-`, ChromiumProxyPort, ChromiumPort, encoded)
+`, ChromiumProxyPort, ChromiumPort, encoded, ChromiumPort)
+}
+
+// deduplicateArgs merges default and extra Chrome launch args, removing
+// duplicates. When the same flag appears in both lists, the extra (user)
+// value wins. Flags are compared by their key (everything before '=').
+func deduplicateArgs(defaults, extras []string) []string {
+	seen := make(map[string]int) // flag key → index in result
+	result := make([]string, 0, len(defaults)+len(extras))
+
+	for _, arg := range defaults {
+		key := argKey(arg)
+		seen[key] = len(result)
+		result = append(result, arg)
+	}
+	for _, arg := range extras {
+		key := argKey(arg)
+		if idx, ok := seen[key]; ok {
+			result[idx] = arg // user value overrides default
+		} else {
+			seen[key] = len(result)
+			result = append(result, arg)
+		}
+	}
+	return result
+}
+
+// argKey extracts the flag key from a Chrome arg for deduplication.
+// "--user-agent=Foo" → "--user-agent", "--no-sandbox" → "--no-sandbox".
+func argKey(arg string) string {
+	for i, c := range arg {
+		if c == '=' {
+			return arg[:i]
+		}
+	}
+	return arg
 }
