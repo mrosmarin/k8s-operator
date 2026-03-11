@@ -820,12 +820,19 @@ func buildSkillsInitContainer(instance *openclawv1alpha1.OpenClawInstance) *core
 		})
 	}
 
+	// Append user-supplied env vars after hardcoded defaults so that
+	// credentials like CLAWHUB_TOKEN are available during skill installation.
+	// Hardcoded vars (HOME, NPM_CONFIG_CACHE, NPM_CONFIG_IGNORE_SCRIPTS)
+	// take precedence because they appear first.
+	env = append(env, instance.Spec.Env...)
+
 	return &corev1.Container{
 		Name:                     "init-skills",
 		Image:                    GetImage(instance),
 		Command:                  []string{"sh", "-c", script},
 		ImagePullPolicy:          getPullPolicy(instance),
 		Env:                      env,
+		EnvFrom:                  instance.Spec.EnvFrom,
 		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 		TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 		SecurityContext: &corev1.SecurityContext{

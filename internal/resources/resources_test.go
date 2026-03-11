@@ -5042,6 +5042,56 @@ func TestBuildStatefulSet_WithNpmSkill_InitSkillsScript(t *testing.T) {
 	}
 }
 
+func TestBuildStatefulSet_WithSkills_EnvAndEnvFromPropagated(t *testing.T) {
+	instance := newTestInstance("skills-env")
+	instance.Spec.Skills = []string{"@anthropic/mcp-server-fetch"}
+	instance.Spec.Env = []corev1.EnvVar{
+		{Name: "CLAWHUB_TOKEN", Value: "secret-token"},
+	}
+	instance.Spec.EnvFrom = []corev1.EnvFromSource{
+		{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "vault-secrets"},
+			},
+		},
+	}
+
+	sts := BuildStatefulSet(instance, "", nil)
+
+	var skillsContainer *corev1.Container
+	for i := range sts.Spec.Template.Spec.InitContainers {
+		if sts.Spec.Template.Spec.InitContainers[i].Name == "init-skills" {
+			skillsContainer = &sts.Spec.Template.Spec.InitContainers[i]
+			break
+		}
+	}
+	if skillsContainer == nil {
+		t.Fatal("init-skills container not found")
+	}
+
+	// Hardcoded env vars should come first (take precedence)
+	names := envNames(skillsContainer.Env)
+	if len(names) < 4 {
+		t.Fatalf("expected at least 4 env vars, got %d: %v", len(names), names)
+	}
+	if names[0] != "HOME" || names[1] != "NPM_CONFIG_CACHE" || names[2] != "NPM_CONFIG_IGNORE_SCRIPTS" {
+		t.Errorf("hardcoded env vars should come first, got %v", names[:3])
+	}
+
+	// User-defined env var should be appended after hardcoded ones
+	if names[len(names)-1] != "CLAWHUB_TOKEN" {
+		t.Errorf("user-defined CLAWHUB_TOKEN should be last, got %v", names)
+	}
+
+	// EnvFrom should be propagated
+	if len(skillsContainer.EnvFrom) != 1 {
+		t.Fatalf("expected 1 envFrom source, got %d", len(skillsContainer.EnvFrom))
+	}
+	if skillsContainer.EnvFrom[0].SecretRef.Name != "vault-secrets" {
+		t.Errorf("envFrom secretRef = %q, want vault-secrets", skillsContainer.EnvFrom[0].SecretRef.Name)
+	}
+}
+
 func TestBuildStatefulSet_WithSkills_SkillsTmpVolume(t *testing.T) {
 	instance := newTestInstance("skills-vol")
 	instance.Spec.Skills = []string{"some-skill"}
