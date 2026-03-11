@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1](https://github.com/openclaw-rocks/k8s-operator/compare/v0.14.0...v0.14.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* **autoupdate:** scale StatefulSet back up after pre-update backup ([2f52f73](https://github.com/openclaw-rocks/k8s-operator/commit/2f52f735a5205de84a2cb3189ad19b6900eb0829))
+* **autoupdate:** scale StatefulSet back up after pre-update backup ([083d752](https://github.com/openclaw-rocks/k8s-operator/commit/083d752e20cc9acaa631b9634e62336afaa155af)), closes [#299](https://github.com/openclaw-rocks/k8s-operator/issues/299)
+
 ## [0.14.0](https://github.com/openclaw-rocks/k8s-operator/compare/v0.13.0...v0.14.0) (2026-03-11)
 
 
