@@ -62,7 +62,8 @@ type s3Credentials struct {
 	AppKey   string
 	Endpoint string
 	Region   string // optional - only needed for S3 providers with custom regions (e.g., MinIO)
-	EnvAuth  bool   // true when static credentials are not provided - uses AWS SDK credential chain (IRSA / Pod Identity / instance profile)
+	Provider string // rclone S3 provider (e.g., "AWS", "GCS", "Other") - defaults to "Other"
+	EnvAuth  bool   // true when static credentials are not provided - uses the provider's credential chain
 }
 
 // getTenantID extracts the tenant ID from the instance label or falls back to namespace
@@ -108,7 +109,8 @@ func (r *OpenClawInstanceReconciler) getS3Credentials(ctx context.Context) (*s3C
 	}
 
 	// S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are optional.
-	// When omitted, EnvAuth is set so rclone uses the AWS SDK credential chain.
+	// When omitted, EnvAuth is set so rclone uses the provider's credential chain
+	// (e.g., AWS SDK chain for IRSA/Pod Identity, GCS Workload Identity).
 	keyID := string(secret.Data["S3_ACCESS_KEY_ID"])
 	appKey := string(secret.Data["S3_SECRET_ACCESS_KEY"])
 	envAuth := keyID == "" && appKey == ""
@@ -116,12 +118,22 @@ func (r *OpenClawInstanceReconciler) getS3Credentials(ctx context.Context) (*s3C
 	// S3_REGION is optional - only needed for providers with custom regions (e.g., MinIO)
 	region := string(secret.Data["S3_REGION"])
 
+	// S3_PROVIDER sets the rclone --s3-provider flag.
+	// Defaults to "Other" for generic S3-compatible backends.
+	// Set to "AWS" for native AWS credential chain, "GCS" for Google Cloud Storage
+	// S3-compatible endpoint, etc. See: https://rclone.org/s3/#s3-provider
+	provider := string(secret.Data["S3_PROVIDER"])
+	if provider == "" {
+		provider = "Other"
+	}
+
 	return &s3Credentials{
 		Bucket:   bucket,
 		KeyID:    keyID,
 		AppKey:   appKey,
 		Endpoint: endpoint,
 		Region:   region,
+		Provider: provider,
 		EnvAuth:  envAuth,
 	}, nil
 }
@@ -153,13 +165,15 @@ func buildRcloneJob(
 		authArgs = []string{"--s3-access-key-id=$(S3_ACCESS_KEY_ID)", "--s3-secret-access-key=$(S3_SECRET_ACCESS_KEY)"}
 	}
 
+	providerFlag := fmt.Sprintf("--s3-provider=%s", creds.Provider)
+
 	var args []string
 	if isBackup {
 		// PVC -> S3
-		args = append([]string{"sync", "/data/", rcloneRemotePath, "--s3-provider=Other", "--s3-endpoint=$(S3_ENDPOINT)"}, authArgs...)
+		args = append([]string{"sync", "/data/", rcloneRemotePath, providerFlag, "--s3-endpoint=$(S3_ENDPOINT)"}, authArgs...)
 	} else {
 		// S3 -> PVC
-		args = append([]string{"sync", rcloneRemotePath, "/data/", "--s3-provider=Other", "--s3-endpoint=$(S3_ENDPOINT)"}, authArgs...)
+		args = append([]string{"sync", rcloneRemotePath, "/data/", providerFlag, "--s3-endpoint=$(S3_ENDPOINT)"}, authArgs...)
 	}
 	args = append(args, "--transfers=8", "--checkers=16", "-v")
 
@@ -348,11 +362,11 @@ func buildBackupCronJob(
 	rcloneCmd := fmt.Sprintf(
 		`TIMESTAMP=$(date -u +%%Y%%m%%dT%%H%%M%%SZ) && `+
 			`rclone sync /data/ ":s3:%s/backups/%s/%s/periodic/${TIMESTAMP}" `+
-			`--s3-provider=Other `+
+			`--s3-provider=%s `+
 			`--s3-endpoint="${S3_ENDPOINT}" `+
 			`%s `+
 			`--transfers=8 --checkers=16 -v`,
-		creds.Bucket, tenantID, instance.Name, authFlags,
+		creds.Bucket, tenantID, instance.Name, creds.Provider, authFlags,
 	)
 
 	return &batchv1.CronJob{

@@ -103,6 +103,7 @@ var _ = Describe("S3 Helpers", func() {
 				KeyID:    "key123",
 				AppKey:   "secret456",
 				Endpoint: "https://s3.us-west-000.backblazeb2.com",
+				Provider: "Other",
 			}
 		})
 
@@ -230,6 +231,7 @@ var _ = Describe("S3 Helpers", func() {
 			envAuthCreds := &s3Credentials{
 				Bucket:   "test-bucket",
 				Endpoint: "https://s3.us-east-1.amazonaws.com",
+				Provider: "AWS",
 				EnvAuth:  true,
 			}
 			instance := &openclawv1alpha1.OpenClawInstance{
@@ -245,6 +247,9 @@ var _ = Describe("S3 Helpers", func() {
 
 			// Verify --s3-env-auth=true is present
 			Expect(container.Args).To(ContainElement("--s3-env-auth=true"))
+
+			// Verify --s3-provider uses the configured provider
+			Expect(container.Args).To(ContainElement("--s3-provider=AWS"))
 
 			// Verify static credential flags are NOT present
 			for _, arg := range container.Args {
@@ -358,6 +363,7 @@ var _ = Describe("S3 Helpers", func() {
 				KeyID:    "key123",
 				AppKey:   "secret456",
 				Endpoint: "https://s3.us-west-000.backblazeb2.com",
+				Provider: "Other",
 			}
 			instance = &openclawv1alpha1.OpenClawInstance{
 				ObjectMeta: metav1.ObjectMeta{
@@ -524,13 +530,15 @@ var _ = Describe("S3 Helpers", func() {
 			envAuthCreds := &s3Credentials{
 				Bucket:   "test-bucket",
 				Endpoint: "https://s3.us-east-1.amazonaws.com",
+				Provider: "AWS",
 				EnvAuth:  true,
 			}
 			cronJob := buildBackupCronJob(instance, envAuthCreds)
 			container := cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
 
-			// Verify rclone command uses --s3-env-auth=true
+			// Verify rclone command uses --s3-env-auth=true and --s3-provider=AWS
 			Expect(container.Command[2]).To(ContainSubstring("--s3-env-auth=true"))
+			Expect(container.Command[2]).To(ContainSubstring("--s3-provider=AWS"))
 			Expect(container.Command[2]).NotTo(ContainSubstring("--s3-access-key-id"))
 			Expect(container.Command[2]).NotTo(ContainSubstring("--s3-secret-access-key"))
 

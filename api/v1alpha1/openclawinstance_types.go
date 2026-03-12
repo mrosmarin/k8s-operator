@@ -490,8 +490,9 @@ type BackupSpec struct {
 	Timeout string `json:"timeout,omitempty"`
 
 	// ServiceAccountName is the name of the ServiceAccount to use for backup and restore Jobs.
-	// Use this to assign an IRSA-annotated or Pod Identity-enabled ServiceAccount so backup
-	// Jobs can authenticate to S3 via the AWS credential chain instead of static credentials.
+	// Use this to assign a cloud-provider workload identity ServiceAccount (e.g., AWS IRSA,
+	// GKE Workload Identity, AKS Workload Identity) so backup Jobs can authenticate to the
+	// storage backend without static credentials.
 	// When set, all backup Jobs (pre-delete, pre-update, periodic, and restore) use this SA.
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`

@@ -676,14 +676,15 @@ metadata:
 stringData:
   S3_ENDPOINT: "https://s3.us-east-1.amazonaws.com"
   S3_BUCKET: "my-openclaw-backups"
-  S3_ACCESS_KEY_ID: "<key-id>"            # optional - omit for IRSA/Pod Identity
-  S3_SECRET_ACCESS_KEY: "<secret-key>"    # optional - omit for IRSA/Pod Identity
+  S3_ACCESS_KEY_ID: "<key-id>"            # optional - omit for workload identity
+  S3_SECRET_ACCESS_KEY: "<secret-key>"    # optional - omit for workload identity
+  # S3_PROVIDER: "Other"    # optional - set to "AWS", "GCS", etc. for native credential chains
   # S3_REGION: "us-east-1"  # optional - needed for MinIO or providers with custom regions
 ```
 
 Compatible with AWS S3, Backblaze B2, Cloudflare R2, MinIO, Wasabi, and any S3-compatible API.
 
-**IRSA / Pod Identity (AWS):** Omit `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` to use the AWS SDK credential chain. Set `spec.backup.serviceAccountName` to an IRSA-annotated or Pod Identity-enabled ServiceAccount so backup Jobs inherit the IAM role. See the [IRSA / Pod Identity section](docs/api-reference.md#irsa--pod-identity-aws) in the API reference for a full example.
+**Cloud workload identity:** Omit `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` and set `S3_PROVIDER` (e.g., `AWS`, `GCS`) to use the provider's native credential chain. Set `spec.backup.serviceAccountName` to a workload identity-enabled ServiceAccount (IRSA, GKE Workload Identity, AKS Workload Identity) so backup Jobs inherit the cloud IAM role. See the [Workload Identity section](docs/api-reference.md#workload-identity-cloud-native-auth) in the API reference for a full example.
 
 **When backups run automatically:**
 
