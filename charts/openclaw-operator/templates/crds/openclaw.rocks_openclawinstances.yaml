@@ -1322,6 +1322,14 @@ spec:
                       Requires persistence to be enabled and the s3-backup-credentials Secret
                       in the operator namespace.
                     type: string
+                  serviceAccountName:
+                    description: |-
+                      ServiceAccountName is the name of the ServiceAccount to use for backup and restore Jobs.
+                      Use this to assign a cloud-provider workload identity ServiceAccount (e.g., AWS IRSA,
+                      GKE Workload Identity, AKS Workload Identity) so backup Jobs can authenticate to the
+                      storage backend without static credentials.
+                      When set, all backup Jobs (pre-delete, pre-update, periodic, and restore) use this SA.
+                    type: string
                   timeout:
                     description: |-
                       Timeout is the maximum duration to wait for a pre-delete backup to complete

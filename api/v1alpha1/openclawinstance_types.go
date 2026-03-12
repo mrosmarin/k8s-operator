@@ -496,6 +496,14 @@ type BackupSpec struct {
 	// Minimum: 5m, Maximum: 24h, Default: 30m.
 	// +optional
 	Timeout string `json:"timeout,omitempty"`
+
+	// ServiceAccountName is the name of the ServiceAccount to use for backup and restore Jobs.
+	// Use this to assign a cloud-provider workload identity ServiceAccount (e.g., AWS IRSA,
+	// GKE Workload Identity, AKS Workload Identity) so backup Jobs can authenticate to the
+	// storage backend without static credentials.
+	// When set, all backup Jobs (pre-delete, pre-update, periodic, and restore) use this SA.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 // ChromiumSpec defines the Chromium sidecar configuration

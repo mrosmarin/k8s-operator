@@ -219,6 +219,134 @@ var _ = Describe("Periodic Backup CronJob", func() {
 			Expect(k8sClient.Delete(ctx, updatedInstance)).Should(Succeed())
 		})
 
+		It("Should set serviceAccountName on CronJob pod when spec.backup.serviceAccountName is set", func() {
+			if os.Getenv("E2E_SKIP_RESOURCE_VALIDATION") == "true" {
+				Skip("Skipping resource validation in minimal mode")
+			}
+
+			instanceName := "backup-cron-sa"
+			instance := &openclawv1alpha1.OpenClawInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      instanceName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"openclaw.rocks/skip-backup": "true",
+					},
+				},
+				Spec: openclawv1alpha1.OpenClawInstanceSpec{
+					Image: openclawv1alpha1.ImageSpec{
+						Repository: "ghcr.io/openclaw/openclaw",
+						Tag:        "latest",
+					},
+					Backup: openclawv1alpha1.BackupSpec{
+						Schedule:           "0 5 * * *",
+						ServiceAccountName: "my-irsa-sa",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, instance)).Should(Succeed())
+
+			// Verify CronJob is created with the ServiceAccountName
+			cronJob := &batchv1.CronJob{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      instanceName + "-backup-periodic",
+					Namespace: namespace,
+				}, cronJob)
+			}, timeout, interval).Should(Succeed())
+
+			podSpec := cronJob.Spec.JobTemplate.Spec.Template.Spec
+			Expect(podSpec.ServiceAccountName).To(Equal("my-irsa-sa"))
+
+			// Clean up
+			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
+		})
+
+		It("Should use --s3-env-auth in CronJob when static credentials are omitted", func() {
+			if os.Getenv("E2E_SKIP_RESOURCE_VALIDATION") == "true" {
+				Skip("Skipping resource validation in minimal mode")
+			}
+
+			// Recreate the s3-backup-credentials Secret without static credentials
+			operatorNS := os.Getenv("OPERATOR_NAMESPACE")
+			if operatorNS == "" {
+				operatorNS = "openclaw-operator-system"
+			}
+			// Delete existing secret and recreate without AK/SK
+			existingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "s3-backup-credentials",
+					Namespace: operatorNS,
+				},
+			}
+			_ = k8sClient.Delete(ctx, existingSecret)
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "s3-backup-credentials",
+					Namespace: operatorNS,
+				}, existingSecret)
+				return apierrors.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue())
+
+			envAuthSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "s3-backup-credentials",
+					Namespace: operatorNS,
+				},
+				StringData: map[string]string{
+					"S3_BUCKET":   "test-bucket",
+					"S3_ENDPOINT": "https://s3.us-east-1.amazonaws.com",
+				},
+			}
+			Expect(k8sClient.Create(ctx, envAuthSecret)).Should(Succeed())
+
+			instanceName := "backup-cron-envauth"
+			instance := &openclawv1alpha1.OpenClawInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      instanceName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"openclaw.rocks/skip-backup": "true",
+					},
+				},
+				Spec: openclawv1alpha1.OpenClawInstanceSpec{
+					Image: openclawv1alpha1.ImageSpec{
+						Repository: "ghcr.io/openclaw/openclaw",
+						Tag:        "latest",
+					},
+					Backup: openclawv1alpha1.BackupSpec{
+						Schedule: "0 6 * * *",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, instance)).Should(Succeed())
+
+			// Verify CronJob is created with --s3-env-auth=true in the rclone command
+			cronJob := &batchv1.CronJob{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      instanceName + "-backup-periodic",
+					Namespace: namespace,
+				}, cronJob)
+			}, timeout, interval).Should(Succeed())
+
+			container := cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
+			Expect(container.Command[2]).To(ContainSubstring("--s3-env-auth=true"))
+			Expect(container.Command[2]).NotTo(ContainSubstring("--s3-access-key-id"))
+
+			// Verify no static credential env vars
+			var envNames []string
+			for _, e := range container.Env {
+				envNames = append(envNames, e.Name)
+			}
+			Expect(envNames).To(ContainElement("S3_ENDPOINT"))
+			Expect(envNames).NotTo(ContainElement("S3_ACCESS_KEY_ID"))
+			Expect(envNames).NotTo(ContainElement("S3_SECRET_ACCESS_KEY"))
+
+			// Clean up
+			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
+		})
+
 		It("Should propagate nodeSelector and tolerations to CronJob pod template", func() {
 			if os.Getenv("E2E_SKIP_RESOURCE_VALIDATION") == "true" {
 				Skip("Skipping resource validation in minimal mode")

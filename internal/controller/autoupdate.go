@@ -566,7 +566,7 @@ func (r *OpenClawInstanceReconciler) driveRollbackRestore(ctx context.Context, i
 		pvcName := pvcNameForInstance(instance)
 		labels := backupLabels(instance, "rollback-restore")
 
-		job := buildRcloneJob(jobName, instance.Namespace, pvcName, backupPath, labels, creds, false, instance.Spec.Availability.NodeSelector, instance.Spec.Availability.Tolerations)
+		job := buildRcloneJob(jobName, instance.Namespace, pvcName, backupPath, labels, creds, false, instance.Spec.Availability.NodeSelector, instance.Spec.Availability.Tolerations, instance.Spec.Backup.ServiceAccountName)
 		if err := controllerutil.SetControllerReference(instance, job, r.Scheme); err != nil {
 			return ctrl.Result{}, false, err
 		}
@@ -712,7 +712,7 @@ func (r *OpenClawInstanceReconciler) drivePreUpdateBackup(ctx context.Context, i
 		pvcName := pvcNameForInstance(instance)
 		labels := backupLabels(instance, "pre-update-backup")
 
-		job := buildRcloneJob(jobName, instance.Namespace, pvcName, b2Path, labels, creds, true, instance.Spec.Availability.NodeSelector, instance.Spec.Availability.Tolerations)
+		job := buildRcloneJob(jobName, instance.Namespace, pvcName, b2Path, labels, creds, true, instance.Spec.Availability.NodeSelector, instance.Spec.Availability.Tolerations, instance.Spec.Backup.ServiceAccountName)
 		if err := controllerutil.SetControllerReference(instance, job, r.Scheme); err != nil {
 			return ctrl.Result{}, false, err
 		}

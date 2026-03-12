@@ -739,6 +739,7 @@ Configures periodic scheduled backups to S3-compatible storage. Requires the `s3
 | `historyLimit`       | `*int32` | `3`     | Number of successful CronJob runs to retain.                                                       |
 | `failedHistoryLimit` | `*int32` | `1`     | Number of failed CronJob runs to retain.                                                           |
 | `timeout`            | `string` | `30m`   | Maximum duration to wait for a pre-delete backup to complete before giving up and proceeding with deletion (Go duration string, e.g. `"30m"`, `"1h"`). Covers all phases: StatefulSet scale-down, pod termination, Job execution, and Job failure retries. Minimum: `5m`, Maximum: `24h`. |
+| `serviceAccountName` | `string` | --      | ServiceAccount to use for backup and restore Jobs. Set this to an IRSA-annotated or Pod Identity-enabled ServiceAccount so Jobs authenticate via the AWS credential chain instead of static credentials. Applies to all backup Jobs (pre-delete, pre-update, periodic, and restore). |
 
 The CronJob mounts the PVC read-only (hot backup - no downtime) and uses pod affinity to schedule on the same node as the StatefulSet pod (required for RWO PVCs). Each run stores data under a unique timestamped path: `backups/<tenantId>/<instanceName>/periodic/<timestamp>`.
 
@@ -749,6 +750,7 @@ spec:
     historyLimit: 5          # Keep last 5 successful runs
     failedHistoryLimit: 2    # Keep last 2 failed runs
     timeout: "30m"           # Max time for pre-delete backup (default: 30m)
+    serviceAccountName: "my-irsa-sa"  # Optional: use IRSA/Pod Identity for S3 auth
 ```
 
 ### spec.restoreFrom
@@ -960,15 +962,16 @@ stringData:
   # S3_REGION: "us-east-1"  # optional - see below
 ```
 
-The first four keys are required. The operator uses rclone's S3 backend (`--s3-provider=Other`), which is compatible with AWS S3, Backblaze B2, MinIO, Cloudflare R2, Wasabi, and any other S3-compatible service.
+`S3_ENDPOINT` and `S3_BUCKET` are required. The operator uses rclone's S3 backend, which is compatible with AWS S3, Backblaze B2, MinIO, Cloudflare R2, Wasabi, Google Cloud Storage (S3-compatible), and any other S3-compatible service.
 
 | Key | Required | Description |
 |-----|----------|-------------|
 | `S3_ENDPOINT` | Yes | S3-compatible endpoint URL (e.g., `https://s3.us-east-1.amazonaws.com`) |
 | `S3_BUCKET` | Yes | Bucket name for backups |
-| `S3_ACCESS_KEY_ID` | Yes | Access key ID |
-| `S3_SECRET_ACCESS_KEY` | Yes | Secret access key |
+| `S3_ACCESS_KEY_ID` | No | Access key ID. When omitted (together with `S3_SECRET_ACCESS_KEY`), rclone uses `--s3-env-auth=true` to authenticate via the provider's native credential chain. |
+| `S3_SECRET_ACCESS_KEY` | No | Secret access key. When omitted (together with `S3_ACCESS_KEY_ID`), rclone uses `--s3-env-auth=true`. |
 | `S3_REGION` | No | S3 region (e.g., `us-east-1`). Required for MinIO instances configured with a custom region. Without this, rclone defaults to `us-east-1`, which causes authentication failures on providers using a different region. |
+| `S3_PROVIDER` | No | rclone S3 provider (default: `Other`). Set to `AWS` for native AWS credential chain, `GCS` for Google Cloud Storage, `Ceph` for Ceph/RadosGW, etc. Setting the correct provider enables provider-specific auth flows and optimizations. See [rclone S3 providers](https://rclone.org/s3/#s3-provider). |
 
 ### When backups run automatically
 
@@ -1050,6 +1053,58 @@ The operator creates a Kubernetes CronJob (`<instance>-backup-periodic`) that:
 **Requirements:** persistence must be enabled and the `s3-backup-credentials` Secret must exist. If either is missing, the CronJob is not created and a `ScheduledBackupReady=False` condition is set.
 
 **Removing the schedule:** set `spec.backup.schedule` to an empty string (or remove the `backup` section entirely) and the CronJob is automatically deleted.
+
+### Workload Identity (cloud-native auth)
+
+Instead of static credentials, you can use your cloud provider's workload identity to authenticate backup Jobs:
+
+- **AWS EKS**: [IRSA](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) or [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) with `S3_PROVIDER=AWS`
+- **GKE**: [Workload Identity Federation](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) with `S3_PROVIDER=GCS` (using GCS S3-compatible endpoint)
+- **AKS**: [Workload Identity](https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview) with static HMAC keys or a compatible S3 provider
+
+The setup has three parts: (1) a ServiceAccount with provider-specific annotations, (2) the `s3-backup-credentials` Secret without static keys, and (3) `spec.backup.serviceAccountName` on the instance.
+
+**Example (AWS IRSA):**
+
+1. Create an IRSA-annotated ServiceAccount in the instance namespace:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openclaw-backup
+  namespace: oc-tenant-my-tenant
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/openclaw-backup-role
+```
+
+2. Omit `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` from the credentials Secret and set `S3_PROVIDER`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s3-backup-credentials
+  namespace: openclaw-operator-system
+stringData:
+  S3_ENDPOINT: "https://s3.us-east-1.amazonaws.com"
+  S3_BUCKET: "my-openclaw-backups"
+  S3_REGION: "us-east-1"
+  S3_PROVIDER: "AWS"  # enables AWS-native credential chain
+```
+
+3. Reference the ServiceAccount in the instance spec:
+
+```yaml
+spec:
+  backup:
+    schedule: "0 2 * * *"
+    serviceAccountName: "openclaw-backup"
+```
+
+When `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are omitted, the operator passes `--s3-env-auth=true` to rclone, which uses the provider's native credential chain. The `serviceAccountName` is set on all backup and restore Job pods so they inherit the cloud IAM role.
+
+Setting `S3_PROVIDER` to the correct value (e.g., `AWS`, `GCS`) enables provider-specific optimizations in rclone. When left unset, it defaults to `Other` which works with any S3-compatible backend using static credentials.
 
 ---
 
