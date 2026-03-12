@@ -783,7 +783,7 @@ func (r *OpenClawInstanceReconciler) reconcilePVC(ctx context.Context, instance 
 		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 			Type:               openclawv1alpha1.ConditionTypeStorageReady,
 			Status:             metav1.ConditionTrue,
-			Reason:             "VolumeClaimTemplates",
+			Reason:             "ManagedByVolumeClaimTemplates",
 			Message:            "Per-replica PVCs managed by StatefulSet VolumeClaimTemplates",
 			ObservedGeneration: instance.Generation,
 		})
