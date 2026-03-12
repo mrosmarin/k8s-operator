@@ -5443,6 +5443,13 @@ spec:
                         type: string
                     type: object
                 type: object
+              podAnnotations:
+                additionalProperties:
+                  type: string
+                description: |-
+                  PodAnnotations are extra annotations merged into the pod template metadata.
+                  Operator-managed annotations (e.g. config-hash) take precedence on conflict.
+                type: object
               probes:
                 description: Probes configures health probes for the OpenClaw container
                 nullable: true
