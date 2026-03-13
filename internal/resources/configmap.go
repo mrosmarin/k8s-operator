@@ -71,7 +71,7 @@ func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseCo
 		}
 	}
 	if instance.Spec.Chromium.Enabled {
-		if enriched, err := enrichConfigWithBrowser(configBytes); err == nil {
+		if enriched, err := enrichConfigWithBrowser(configBytes, instance); err == nil {
 			configBytes = enriched
 		}
 	}
@@ -282,15 +282,23 @@ func BuildTailscaleServeConfig(instance *openclawv1alpha1.OpenClawInstance) stri
 
 // enrichConfigWithBrowser injects browser config into the config JSON so the
 // agent uses the Chromium sidecar instead of the Chrome extension relay.
-// Configures both "default" and "chrome" profiles to point at the sidecar CDP
-// port and sets attachOnly=true so OpenClaw attaches to the existing sidecar
-// instead of trying to launch/manage a browser process locally.
+//
+// Key settings injected:
+//   - attachOnly=true: skips local browser binary detection. Without this,
+//     OpenClaw checks for a local Chrome/Chromium binary first, fails with
+//     "No supported browser found", and never attempts the remote CDP connection.
+//   - remoteCdpTimeoutMs=30000: gives the browser service time to become ready
+//     on startup, avoiding permanent failure when tool registration wins the
+//     race against browser service initialization.
+//   - cdpUrl on "default" and "chrome" profiles: resolved at config build time
+//     to the headless CDP Service DNS name (not an env var reference).
+//
 // The "chrome" profile must be redirected because LLMs frequently pass
 // profile="chrome" explicitly in browser tool calls, bypassing defaultProfile.
 // Without this override the built-in "chrome" profile falls back to the
 // extension relay which does not work in a headless container.
 // Does not override user-set values.
-func enrichConfigWithBrowser(configJSON []byte) ([]byte, error) {
+func enrichConfigWithBrowser(configJSON []byte, instance *openclawv1alpha1.OpenClawInstance) ([]byte, error) {
 	var config map[string]interface{}
 	if err := json.Unmarshal(configJSON, &config); err != nil {
 		return configJSON, nil // not a JSON object, return unchanged
@@ -306,16 +314,31 @@ func enrichConfigWithBrowser(configJSON []byte) ([]byte, error) {
 		browser["defaultProfile"] = "default"
 	}
 
+	// attachOnly=true skips local browser binary detection. In a container
+	// there is no local Chrome binary - without this flag OpenClaw fails with
+	// "No supported browser found" and never attempts the remote CDP connection.
+	if _, ok := browser["attachOnly"]; !ok {
+		browser["attachOnly"] = true
+	}
+
+	// remoteCdpTimeoutMs gives the browser service time to become ready.
+	// OpenClaw's tool registration can fire before the browser service is
+	// fully initialized. Without a timeout, the failure is cached permanently
+	// for the pod's lifetime.
+	if _, ok := browser["remoteCdpTimeoutMs"]; !ok {
+		browser["remoteCdpTimeoutMs"] = float64(30000)
+	}
+
 	profiles, _ := browser["profiles"].(map[string]interface{})
 	if profiles == nil {
 		profiles = make(map[string]interface{})
 	}
 
-	// Use ${OPENCLAW_CHROMIUM_CDP} env var (resolved at runtime by OpenClaw)
-	// which points to the Chromium sidecar via the Kubernetes Service DNS name.
-	// The non-loopback address triggers OpenClaw's remote/attach mode
-	// automatically, so no explicit attachOnly flag is needed.
-	cdpURL := "${OPENCLAW_CHROMIUM_CDP}"
+	// Build the resolved CDP URL at config generation time using the headless
+	// CDP Service DNS name. Previous versions used ${OPENCLAW_CHROMIUM_CDP}
+	// env var interpolation, but this proved unreliable across OpenClaw versions.
+	cdpURL := fmt.Sprintf("http://%s.%s.svc:%d",
+		ChromiumCDPServiceName(instance), instance.Namespace, ChromiumPort)
 
 	// Configure both "default" and "chrome" profiles to point at the sidecar.
 	// LLMs often explicitly pass profile="chrome", so we redirect it to the

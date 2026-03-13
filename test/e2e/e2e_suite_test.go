@@ -1403,19 +1403,25 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			browser, ok := parsed["browser"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "config should have browser key")
 
-			// attachOnly should NOT be injected by the operator
-			_, hasAttachOnly := browser["attachOnly"]
-			Expect(hasAttachOnly).To(BeFalse(), "browser.attachOnly should not be injected by operator")
+			// attachOnly must be true so OpenClaw skips local browser binary
+			// detection and connects directly to the remote CDP sidecar.
+			Expect(browser["attachOnly"]).To(BeTrue(), "browser.attachOnly should be true")
+
+			// remoteCdpTimeoutMs gives the browser service time to initialize
+			Expect(browser["remoteCdpTimeoutMs"]).To(BeNumerically("==", 30000),
+				"browser.remoteCdpTimeoutMs should be 30000")
 
 			profiles, ok := browser["profiles"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "browser should have profiles key")
 
-			// cdpUrl uses env var reference resolved at runtime to service DNS
+			// cdpUrl is resolved at config build time to the CDP Service DNS name
+			expectedCDPURL := fmt.Sprintf("http://%s.%s.svc:%d",
+				resources.ChromiumCDPServiceName(instance), namespace, resources.ChromiumPort)
 			for _, profileName := range []string{"default", "chrome"} {
 				profile, ok := profiles[profileName].(map[string]interface{})
 				Expect(ok).To(BeTrue(), "profiles should have %s key", profileName)
-				Expect(profile["cdpUrl"]).To(Equal("${OPENCLAW_CHROMIUM_CDP}"),
-					"browser.profiles.%s.cdpUrl should use env var reference", profileName)
+				Expect(profile["cdpUrl"]).To(Equal(expectedCDPURL),
+					"browser.profiles.%s.cdpUrl should use resolved CDP Service DNS", profileName)
 			}
 
 			// Verify Service has chromium port

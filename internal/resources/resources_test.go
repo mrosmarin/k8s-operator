@@ -7469,10 +7469,18 @@ func TestBuildConfigMap_ChromiumBrowserConfig(t *testing.T) {
 		t.Errorf("browser.defaultProfile = %v, want %q", browser["defaultProfile"], "default")
 	}
 
-	// attachOnly should NOT be injected — remote mode is triggered automatically
-	// by the non-loopback service DNS address in OPENCLAW_CHROMIUM_CDP.
-	if _, hasAttachOnly := browser["attachOnly"]; hasAttachOnly {
-		t.Errorf("browser.attachOnly should not be injected by operator, got %v", browser["attachOnly"])
+	// attachOnly must be true so OpenClaw skips local browser binary detection
+	// and goes straight to the remote CDP connection.
+	attachOnly, ok := browser["attachOnly"].(bool)
+	if !ok || !attachOnly {
+		t.Errorf("browser.attachOnly = %v, want true", browser["attachOnly"])
+	}
+
+	// remoteCdpTimeoutMs gives the browser service time to become ready,
+	// preventing permanent failure when tool registration fires first.
+	timeout, ok := browser["remoteCdpTimeoutMs"].(float64)
+	if !ok || timeout != 30000 {
+		t.Errorf("browser.remoteCdpTimeoutMs = %v, want 30000", browser["remoteCdpTimeoutMs"])
 	}
 
 	profiles, ok := browser["profiles"].(map[string]interface{})
@@ -7480,14 +7488,14 @@ func TestBuildConfigMap_ChromiumBrowserConfig(t *testing.T) {
 		t.Fatal("expected browser.profiles key")
 	}
 
-	// Both "default" and "chrome" profiles must use the env var reference.
-	// ${OPENCLAW_CHROMIUM_CDP} resolves at runtime to the service DNS CDP URL.
+	// Both "default" and "chrome" profiles must use the resolved CDP Service
+	// DNS URL (not an env var reference).
+	expectedCDP := fmt.Sprintf("http://%s-cdp.test-ns.svc:%d", instance.Name, ChromiumPort)
 	for _, name := range []string{"default", "chrome"} {
 		p, ok := profiles[name].(map[string]interface{})
 		if !ok {
 			t.Fatalf("expected browser.profiles.%s key", name)
 		}
-		expectedCDP := "${OPENCLAW_CHROMIUM_CDP}"
 		if p["cdpUrl"] != expectedCDP {
 			t.Errorf("browser.profiles.%s.cdpUrl = %v, want %q", name, p["cdpUrl"], expectedCDP)
 		}
@@ -7615,6 +7623,30 @@ func TestBuildConfigMap_ChromiumUserOverrideCdpPort(t *testing.T) {
 	// cdpPort should be preserved
 	if defaultProfile["cdpPort"] != float64(18800) {
 		t.Errorf("user-set cdpPort should be preserved, got %v", defaultProfile["cdpPort"])
+	}
+}
+
+func TestBuildConfigMap_ChromiumUserOverrideRemoteCdpTimeout(t *testing.T) {
+	instance := newTestInstance("cr-override-timeout")
+	instance.Spec.Chromium.Enabled = true
+	instance.Spec.Config.Raw = &openclawv1alpha1.RawConfig{
+		RawExtension: runtime.RawExtension{
+			Raw: []byte(`{"browser":{"remoteCdpTimeoutMs":60000}}`),
+		},
+	}
+
+	cm := BuildConfigMap(instance, "", nil)
+	content := cm.Data["openclaw.json"]
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatalf("failed to parse config JSON: %v", err)
+	}
+
+	browser := parsed["browser"].(map[string]interface{})
+	timeout := browser["remoteCdpTimeoutMs"].(float64)
+	if timeout != 60000 {
+		t.Errorf("user-set remoteCdpTimeoutMs should be preserved, got %v", timeout)
 	}
 }
 
