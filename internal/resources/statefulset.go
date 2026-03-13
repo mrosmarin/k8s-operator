@@ -21,12 +21,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -2388,7 +2388,7 @@ func VolumeClaimTemplatesEqual(a, b []corev1.PersistentVolumeClaim) bool {
 		if a[i].Name != b[i].Name {
 			return false
 		}
-		if !reflect.DeepEqual(a[i].Spec, b[i].Spec) {
+		if !apiequality.Semantic.DeepEqual(a[i].Spec, b[i].Spec) {
 			return false
 		}
 	}
