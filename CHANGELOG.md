@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1](https://github.com/openclaw-rocks/k8s-operator/compare/v0.16.0...v0.16.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* Add get and watch RBAC permissions for pods ([69c6c8b](https://github.com/openclaw-rocks/k8s-operator/commit/69c6c8b0d37bd4640811c85e7cbc7147eb9c4267))
+* add get and watch verbs for pods RBAC permission ([ad04174](https://github.com/openclaw-rocks/k8s-operator/commit/ad04174db42b4dbf358a403ff8cdf3ce9dc50c08))
+* **chromium:** inject attachOnly, remoteCdpTimeoutMs, and resolved cdpUrl ([8bc75f3](https://github.com/openclaw-rocks/k8s-operator/commit/8bc75f34cdfca024987b67fd94c7d3534f393329)), closes [#270](https://github.com/openclaw-rocks/k8s-operator/issues/270)
+* **chromium:** inject attachOnly, timeout, and resolved cdpUrl ([3019c6d](https://github.com/openclaw-rocks/k8s-operator/commit/3019c6d5853282a84b725a2c43a91084f611e5b4))
+
 ## [0.16.0](https://github.com/openclaw-rocks/k8s-operator/compare/v0.15.1...v0.16.0) (2026-03-12)
 
 
