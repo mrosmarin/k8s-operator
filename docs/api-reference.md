@@ -774,9 +774,9 @@ spec:
 
 | Field         | Type     | Default | Description                                                                                       |
 |---------------|----------|---------|---------------------------------------------------------------------------------------------------|
-| `restoreFrom` | `string` | --      | S3 path to restore data from (e.g., `backups/{tenantId}/{instanceId}/{timestamp}`). When set, the operator restores PVC data from this path before creating the StatefulSet. Cleared automatically after successful restore. Requires the `s3-backup-credentials` Secret to be present in the operator namespace. |
+| `restoreFrom` | `string` | --      | S3 path to restore data from (e.g., `backups/{tenantId}/{instanceId}/{timestamp}`). When set, the operator restores PVC data from this path before creating the StatefulSet. Works on both existing and new instances (enabling clone/migrate workflows). Cleared automatically after successful restore. Requires the `s3-backup-credentials` Secret to be present in the operator namespace. |
 
-See [Backup and Restore](#backup-and-restore) for full setup instructions.
+See [Backup and Restore](#backup-and-restore) for full setup instructions, including [clone/migrate workflows](#clone--migrate-an-instance).
 
 ### spec.runtimeDeps
 
@@ -1046,6 +1046,54 @@ spec:
 ```
 
 To find available backups, list the S3 bucket directly (e.g., `aws s3 ls s3://my-openclaw-backups/backups/`). The `status.lastBackupPath` field on any existing instance shows its last backup path.
+
+**Restore behavior:**
+
+- The restore Job runs **before** the StatefulSet is created (reconcile order: PVC -> restore Job -> StatefulSet)
+- `spec.restoreFrom` is cleared automatically after a successful restore and the original path is recorded in `status.restoredFrom`
+- The restore Job uses `spec.backup.serviceAccountName` when set, so workload identity (IRSA/Pod Identity) works for restores
+- If the restore Job fails, the operator sets `RestoreComplete=False` and retries. Delete the failed Job to trigger a fresh attempt
+
+### Clone / migrate an instance
+
+`spec.restoreFrom` works on **new instances** (with empty PVCs), not just existing ones. This enables cloning and cross-namespace migration workflows.
+
+**Example - clone instance A from namespace X to namespace Y:**
+
+```yaml
+# 1. Check the source instance's last backup path:
+#    kubectl get openclawinstance my-agent -n ns-x -o jsonpath='{.status.lastBackupPath}'
+#    -> backups/tenant-x/my-agent/2026-03-15T02:00:00Z
+
+# 2. Create a new instance in the target namespace with restoreFrom:
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: my-agent-clone
+  namespace: ns-y
+spec:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: latest
+  restoreFrom: "backups/tenant-x/my-agent/2026-03-15T02:00:00Z"
+  backup:
+    serviceAccountName: "openclaw-backup"  # if using workload identity
+```
+
+The operator creates the PVC, runs the restore Job (rclone sync from S3 to the new PVC), then starts the StatefulSet with the restored data. The new instance gets a fresh gateway token - the source instance is unaffected.
+
+**ArgoCD integration:** The operator auto-clears `spec.restoreFrom` after a successful restore. To prevent ArgoCD from detecting this as drift, add it to `ignoreDifferences`:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+spec:
+  ignoreDifferences:
+    - group: openclaw.rocks
+      kind: OpenClawInstance
+      jsonPointers:
+        - /spec/restoreFrom
+```
 
 ### Periodic / scheduled backups
 

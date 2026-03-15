@@ -723,6 +723,8 @@ spec:
 
 The operator runs a restore job to populate the PVC before starting the StatefulSet, then clears `restoreFrom` automatically. Backup paths follow the format `backups/<tenantId>/<instanceName>/<timestamp>`.
 
+**Clone / migrate an instance:** `restoreFrom` works on both existing and brand-new instances. To clone an instance across namespaces, create a new `OpenClawInstance` with `spec.restoreFrom` pointing to the source's backup path - the operator creates the PVC, runs the restore Job, then starts the StatefulSet. The new instance gets a fresh gateway token; the source is unaffected. The restore Job uses `spec.backup.serviceAccountName` when set, so workload identity (IRSA/Pod Identity) works for cross-namespace clones. For ArgoCD users, add `spec.restoreFrom` to `ignoreDifferences` since the operator auto-clears it after restore.
+
 For full details see the [Backup and Restore section](docs/api-reference.md#backup-and-restore) in the API reference.
 
 ### What the operator manages automatically
